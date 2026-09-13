@@ -10,22 +10,26 @@
 from __future__ import annotations
 
 import io
+import sys
 from pathlib import Path
 
 import numpy as np
 import openpyxl
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import vintage as VT  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "data" / "raw"
-OUT = ROOT / "data" / "processed" / "sna_quarterly.csv"
+OUT = VT.processed("sna_quarterly.csv")
 
 
 # ---------------------------------------------------------------------------
 # 四半期GDP速報 CSV
 # ---------------------------------------------------------------------------
 def read_qe(fname: str, cols: dict[str, int]) -> pd.DataFrame:
-    raw = (RAW / fname).read_bytes().decode("shift_jis", errors="replace")
+    raw = VT.qe_file(fname).read_bytes().decode("shift_jis", errors="replace")
     df = pd.read_csv(io.StringIO(raw), header=None)
     periods, rows = [], []
     year = None
@@ -43,14 +47,51 @@ def read_qe(fname: str, cols: dict[str, int]) -> pd.DataFrame:
     return pd.DataFrame(rows, index=pd.PeriodIndex(periods, freq="Q"))
 
 
+def official_ywv() -> pd.Series | None:
+    """QE 表 kshotoku（雇用者報酬）の名目季節調整系列（年率、10億円）。無い版では None."""
+    f = VT.qe_file("kshotoku-q")
+    if not f.exists():
+        return None
+    raw = f.read_bytes().decode("shift_jis", errors="replace")
+    df = pd.read_csv(io.StringIO(raw), header=None)
+    periods, vals, year = [], [], None
+    qmap = {"1- 3": 1, "4- 6": 2, "7- 9": 3, "10-12": 4}
+    for _, r in df.iloc[8:].iterrows():
+        label = str(r[0]).strip()
+        if label[:4].isdigit() and label[4:5] == "/":
+            year = int(label[:4])
+        q = next((v for k, v in qmap.items() if k in label), None)
+        if q is None or year is None:
+            continue
+        periods.append(pd.Period(year=year, quarter=q, freq="Q"))
+        vals.append(pd.to_numeric(str(r[3]).replace(",", "").strip(), errors="coerce"))
+    return pd.Series(vals, index=pd.PeriodIndex(periods, freq="Q"))
+
+
+def smooth_annual(x: pd.Series) -> pd.Series:
+    """暦年平均を保ちつつ四半期を滑らかにする（年平均を年央に置き3次スプラインで補間、年平均で再調整）."""
+    from scipy.interpolate import CubicSpline
+    x = x.dropna()
+    years = sorted({p.year for p in x.index if (x.index.year == p.year).sum() == 4})
+    ymean = pd.Series({y: x[[p.year == y for p in x.index]].mean() for y in years})
+    t_mid = np.array([y + 0.5 for y in years])
+    cs = CubicSpline(t_mid, ymean.values, bc_type="natural")
+    t = np.array([p.year + (p.quarter - 0.5) / 4 for p in x.index])
+    out = pd.Series(cs(t), index=x.index)
+    for y in years:  # 補間後の年平均を元の年平均に一致させる
+        m = [p.year == y for p in x.index]
+        out[m] = out[m] * ymean[y] / out[m].mean()
+    return out
+
+
 def qe_block() -> pd.DataFrame:
-    real = read_qe("gaku-jk2522.csv", {
+    real = read_qe("gaku-jk", {
         "GDP": 1, "CP": 2, "IHP": 5, "IFP": 6, "INP": 7, "CG": 8, "IG": 9, "ING": 10,
         "BF": 11, "XGS": 12, "MGS": 13, "KAISA": 14})
-    nom = read_qe("gaku-mk2522.csv", {
+    nom = read_qe("gaku-mk", {
         "GDPV": 1, "CPV": 2, "IHPV": 5, "IFPV": 6, "INPV": 7, "CGV": 8, "IGV": 9, "INGV": 10,
         "BFV": 11, "XGSV": 12, "MGSV": 13, "NFIV": 15, "RTRIV": 16, "PTRIV": 17, "GNIV": 18})
-    defl = read_qe("def-qk2522.csv", {
+    defl = read_qe("def-qk", {
         "PGDP": 1, "PCP": 2, "PIHP": 5, "PIFP": 6, "PCG": 8, "PIG": 9, "PXGS": 12, "PMGS": 13}) / 100
     return real.join(nom).join(defl)
 
@@ -59,7 +100,7 @@ def qe_block() -> pd.DataFrame:
 # 年次推計 Excel の四半期シート（行番号は 0 始まり、列1以降が1994Q1〜）
 # ---------------------------------------------------------------------------
 def read_q_sheet(fname: str, sheet: str, rows: dict[str, tuple[int, str]]) -> pd.DataFrame:
-    ws = openpyxl.load_workbook(RAW / fname, read_only=True, data_only=True)[sheet]
+    ws = openpyxl.load_workbook(VT.annual_file(fname), read_only=True, data_only=True)[sheet]
     table = list(ws.iter_rows(values_only=True))
     ncol = len(table[6]) - 1
     idx = pd.period_range("1994Q1", periods=ncol, freq="Q")
@@ -74,20 +115,22 @@ def read_q_sheet(fname: str, sheet: str, rows: dict[str, tuple[int, str]]) -> pd
 
 
 def income_block() -> pd.DataFrame:
-    qom = read_q_sheet("2022qom2_jp.xlsx", "実数", {
+    qom = read_q_sheet("qom2", "実数", {
         "YWV": (7, "雇用者報酬"), "YWIV": (8, "賃金・俸給"), "YOLIV": (9, "雇主の社会負担"),
         "YIGV": (15, "一般政府"), "YIEV": (26, "家計"), "YINPV": (33, "対家計民間非営利団体"),
         "YICV": (49, "個人企業"), "NIV": (53, "国民所得（要素費用表示）"),
         "TAXNETV": (55, "生産・輸入品に課される税"),
+        "ENTV": (42, "企業所得"),  # 企業部門の第１次所得バランス（法人＋公的企業＋個人企業）
+        "RENTHH": (32, "賃貸料"),  # 家計財産所得のうち賃貸料（受取）
     })
-    g1 = read_q_sheet("2022i4_jp.xlsx", "四半期（１）", {
+    g1 = read_q_sheet("i4", "四半期（１）", {
         "CCAVG": (12, "固定資本減耗"), "TPIV": (16, "生産・輸入品に課される税"),
         "TCIV": (18, "付加価値型税"), "TCSTV": (19, "輸入関税"), "SUBV": (22, "補助金"),
     })
-    g2 = read_q_sheet("2022i4_jp.xlsx", "四半期（２）", {
+    g2 = read_q_sheet("i4", "四半期（２）", {
         "TINCGV": (25, "所得・富等に課される経常税"), "CSSV": (28, "純社会負担"),
     })
-    h2 = read_q_sheet("2022i5_jp.xlsx", "四半期（２）", {
+    h2 = read_q_sheet("i5", "四半期（２）", {
         "TYPV": (7, "所得・富等に課される経常税"), "YDV": (21, "可処分所得（純）"),
         "BSSV": (30, "現物社会移転以外の社会給付"),
     })
@@ -100,7 +143,7 @@ def income_block() -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # 季節調整（移動平均比率法）
 # ---------------------------------------------------------------------------
-def seasonal_adjust(s: pd.Series, additive: bool = False, years: int = 7) -> pd.Series:
+def seasonal_adjust(s: pd.Series, additive: bool = False, years: int = 5) -> pd.Series:
     """2×4 中心化移動平均からの比率(差)を四半期別に移動平均して季節因子とする."""
     x = s.astype(float)
     trend = (0.5 * x.shift(2) + x.shift(1) + x + x.shift(-1) + 0.5 * x.shift(-2)) / 4
@@ -124,14 +167,31 @@ def build() -> pd.DataFrame:
     inc = income_block()
     sa = pd.DataFrame({c: seasonal_adjust(inc[c].dropna(), additive=c in ADDITIVE).reindex(inc.index) * 4
                        for c in inc.columns})
+    # 企業所得は変動が大きく加法型が適する（論文乗数表から逆算した法人企業所得の経路との形の誤差 2.5% vs 乗法 3.9%）
+    for c in ["ENTV", "YICV", "RENTHH", "YINPV"]:
+        sa[c] = seasonal_adjust(inc[c].dropna(), additive=True).reindex(inc.index) * 4
     df = qe.join(sa, how="left")
-    # 国民所得の定義式(83)で固定資本減耗と不突合をまとめて扱う
+    ywv = official_ywv()
+    if ywv is not None:  # 雇用者報酬は QE の公式季節調整値を優先（自前の季調との差は 0.15% 程度）
+        off = ywv.reindex(df.index)
+        df["YWV"] = off.where(off.notna(), df["YWV"])
+    # 国民所得の定義式(83): 固定資本減耗(+不突合)は季調残差が乗らないよう年平均を滑らかに補間したものを使い、
+    # NIV は定義式から求める（NIV を独立に季調すると法人企業所得（残差）に ±3% の季節性が残る）
     df["ITAXV"] = df["TCIV"] + df["TCSTV"] + df["OITAXV"]
-    df["SDV"] = 0.0
-    df["CCAV"] = df["GDPV"] - df["ITAXV"] + df["SUBV"] + df["NFIV"] - df["NIV"]
+    ccav_raw = df["GDPV"] - df["ITAXV"] + df["SUBV"] + df["NFIV"] - df["NIV"]
+    df["CCAV"] = smooth_annual(ccav_raw).reindex(df.index)
     df["TAXV"] = df["TYPV"] + df["TYCV"] + df["ITAXV"]
+    # 家計財産所得 YIEV は賃貸料を含まない金融的な財産所得（利子・配当・その他の投資所得）。
+    # 論文の乗数表から逆算した法人企業所得の水準は、SNA 法人企業所得＋家計賃貸料＋NPISH財産所得 と 0.2% で一致し、
+    # 式104（財産所得は金利に反応）の定式化とも整合する。
+    df["YIEV"] = df["YIEV"] - df["RENTHH"]
     df["YIV"] = df["YIEV"] + df["YIGV"]
-    df["YCV"] = df["NIV"] - df["YWV"] - (df["YIV"] + df["YICV"])
+    # 法人企業所得は SNA の企業所得（法人＋公的）＋家計賃貸料＋NPISH財産所得 を直接季調したもの。
+    # ESRI の四半期経路（乗数表から逆算）はこの系列と相関 0.96（国民所得の残差として作ると 0.61）。
+    # 定義式(83)(84)の残りは不突合 SDV で閉じる
+    df["YCV"] = df["ENTV"] - df["YICV"] + df["RENTHH"] + df["YINPV"]
+    df["NIV"] = df["YWV"] + df["YIV"] + df["YICV"] + df["YCV"]
+    df["SDV"] = df["GDPV"] - df["CCAV"] - df["ITAXV"] + df["SUBV"] + df["NFIV"] - df["NIV"]
     df["OTYDV"] = df["YDV"] - (df["YWV"] + df["BSSV"] + df["YIEV"] + df["YICV"] - df["TYPV"] - df["CSSV"])
     return df
 
@@ -163,7 +223,7 @@ def _find(rows, text: str, start: int = 0) -> tuple:
 def annual_block() -> pd.DataFrame:
     rec: dict[int, dict[str, float]] = {}
     # 固定資本ストック（名目、暦年末）: 列 3=非金融法人民間 4=同公的 6=金融機関民間 7=同公的 8=一般政府 9=家計 10=NPISH
-    wb = openpyxl.load_workbook(RAW / "2022ss4n_jp.xlsx", read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(VT.annual_file("ss4n"), read_only=True, data_only=True)
     for sn in wb.sheetnames:
         y = sheet_year(sn)
         if y is None:
@@ -176,7 +236,7 @@ def annual_block() -> pd.DataFrame:
         rec[y]["KFPV"] = f(total, priv) - rec[y]["KHPV"]
         rec[y]["KGV"] = f(total, (4, 7, 8))
     # 国民資産・負債残高（暦年末、列8=当期末残高）
-    wb = openpyxl.load_workbook(RAW / "2022ss1_jp.xlsx", read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(VT.annual_file("ss1"), read_only=True, data_only=True)
     for sn in wb.sheetnames:
         y = sheet_year(sn)
         if y is None:
@@ -184,9 +244,13 @@ def annual_block() -> pd.DataFrame:
         rows = list(wb[sn].iter_rows(values_only=True))
         rec.setdefault(y, {})["KNPV"] = float(_find(rows, "ｂ．在庫")[8])
         rec[y]["LANDT"] = float(_find(rows, "（ａ）土地")[8])
-        rec[y]["SHARETV"] = float(_find(rows, "うち株式")[8])
+        # 株式総額は負債側（居住者が発行した株式の残高）。資産側（居住者保有分）だと株価収益率の水準が
+        # 論文の乗数表から逆算した値より約2割低くなる（PERR 誤差 0.42→0.18、資本コスト 0.59→0.36）
+        i_liab = next(i for i, r in enumerate(rows) if r and r[0] is not None and "３．負債" in str(r[0]).replace("　", ""))
+        rec[y]["SHARETV"] = float(_find(rows[i_liab:], "うち株式")[8])
+        rec[y]["SHARETV_ASSET"] = float(_find(rows, "うち株式")[8])
     # 対外資産・負債残高（暦年末）
-    rows = list(openpyxl.load_workbook(RAW / "2022ss5_jp.xlsx", read_only=True, data_only=True)
+    rows = list(openpyxl.load_workbook(VT.annual_file("ss5"), read_only=True, data_only=True)
                 ["対外資産・負債残高"].iter_rows(values_only=True))
     years = rows[5]
     for key, lab in {"FASSTV": "対外資産", "FLIABV": "対外負債", "SBCV": "対外純資産"}.items():
@@ -195,7 +259,7 @@ def annual_block() -> pd.DataFrame:
             if years[c] is not None and r[c] not in (None, "-"):
                 rec.setdefault(int(years[c]), {})[key] = float(r[c])
     # 家計（個人企業を含む）期末貸借対照表: 家計保有の土地・株式（暦年末）
-    rows = list(openpyxl.load_workbook(RAW / "2022si4_jp.xlsx", read_only=True, data_only=True)
+    rows = list(openpyxl.load_workbook(VT.annual_file("si4"), read_only=True, data_only=True)
                 ["期末貸借対照表"].iter_rows(values_only=True))
     years = rows[7]
     land, share = _find(rows, "ａ．土地"), _find(rows, "うち株式")  # 株式は資産側（最初の出現）
@@ -205,7 +269,7 @@ def annual_block() -> pd.DataFrame:
             rec.setdefault(y, {})["LANDV_HH"] = float(land[c])
             rec[y]["SHAREV_HH"] = float(share[c])
     # 一般政府の固定資産の純取得（年度、GFS）
-    rows = list(openpyxl.load_workbook(RAW / "2022s6_2_jp.xlsx", read_only=True, data_only=True)
+    rows = list(openpyxl.load_workbook(VT.annual_file("s6_2"), read_only=True, data_only=True)
                 ["経常・資本取引"].iter_rows(values_only=True))
     # 年度見出しは各5列ブロック（中央・地方・社保・部門間調整・一般政府）の2列目に置かれている
     # GFS の「純取得」は固定資本減耗控除後なので、総固定資本形成 = 311 固定資産 + 23 固定資本減耗
@@ -218,11 +282,12 @@ def annual_block() -> pd.DataFrame:
 
 
 def main() -> None:
+    print(f"SNA の版: {VT.NAME} — {VT.V['label']}")
     df = build()
     OUT.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUT, encoding="utf-8-sig", index_label="period")
     ann = annual_block()
-    ann.to_csv(OUT.with_name("sna_annual.csv"), encoding="utf-8-sig", index_label="year")
+    ann.to_csv(VT.processed("sna_annual.csv"), encoding="utf-8-sig", index_label="year")
     print(ann.loc[2014:2022].round(0).to_string())
     show = ["GDP", "GDPV", "PGDP", "CP", "IFP", "IG", "YWV", "YCV", "YDV", "TYPV", "TYCV",
             "TCIV", "CSSV", "BSSV", "CCAV", "OTYDV", "RTRIV", "PTRIV"]

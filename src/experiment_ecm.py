@@ -26,16 +26,16 @@ def run(variant: str, frozen: list[str]) -> pd.DataFrame:
     data = pd.read_csv(ROOT / "data/processed/model_data.csv", index_col="period")
     data.index = pd.PeriodIndex(data.index, freq="Q")
     model = M.Model()
-    af = model.add_factors(data, SIM.START, SIM.END)
-    base = model.solve(data, SIM.START, SIM.END, af)
+    af = model.add_factors(data, SIM.SOLVE_START, SIM.END)
+    base = model.solve(data, SIM.SOLVE_START, SIM.END, af)
     live = frozenset(n for n in ECM if n not in frozen)
-    over, cols = ECMOD.frozen_overrides(model, base, SIM.sim_mask(base.index), live=live)
+    over, cols = ECMOD.frozen_overrides(model, base, SIM.solve_mask(base.index), live=live)
     out = []
     for s in SIM.build_scenarios(base, af):
         d = base.copy()
         for k, v in {**s.data, **cols}.items():
             d[k] = v
-        sh = model.solve(d, SIM.START, SIM.END, af, fixed=s.fixed, overrides={**over, **s.overrides}, shocks=s.shocks)
+        sh = model.solve(d, SIM.SOLVE_START, SIM.END, af, fixed=s.fixed, overrides={**over, **s.overrides}, shocks=s.shocks)
         out.append(SIM.multipliers(sh, base, s.no))
     return pd.concat(out).assign(variant=variant)
 

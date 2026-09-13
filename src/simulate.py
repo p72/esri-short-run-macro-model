@@ -19,7 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import model as M  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-START, END = "2018Q1", "2020Q4"
+START, END = "2018Q1", "2020Q4"      # 乗数表の対象期間
+SOLVE_START = "2017Q3"              # 解く期間の始まり。消費税率のリード項（2期先まで）が2017Q3〜Q4に効く
 
 # 乗数表の変数と表示（pt=乖離幅、それ以外は乖離率%）
 PT_VARS = {"GDPD", "UR", "GDPGAP", "RCD", "RGB", "PERR", "BGVATGDPV", "SBGVATGDPV", "BCVATGDPV"}
@@ -42,7 +43,13 @@ class Scenario:
 
 
 def sim_mask(index: pd.PeriodIndex) -> np.ndarray:
+    """乗数表の対象期間（2018Q1〜2020Q4）."""
     return (index >= pd.Period(START, "Q")) & (index <= pd.Period(END, "Q"))
+
+
+def solve_mask(index: pd.PeriodIndex) -> np.ndarray:
+    """モデルを解く期間（駆け込みが生じる2017Q3から）."""
+    return (index >= pd.Period(SOLVE_START, "Q")) & (index <= pd.Period(END, "Q"))
 
 
 def build_scenarios(base: pd.DataFrame, af: pd.DataFrame) -> list[Scenario]:
@@ -50,7 +57,6 @@ def build_scenarios(base: pd.DataFrame, af: pd.DataFrame) -> list[Scenario]:
     on = pd.Series(sim_mask(idx).astype(float), index=idx)
     # 外生変数のショックは期間後も継続させる（式にリード項があり、期末で途切れると反動が出る）
     after = pd.Series((idx >= pd.Period(START, "Q")).astype(float), index=idx)
-    first = pd.Series((idx == pd.Period(START, "Q")).astype(float), index=idx)
 
     def add(var: str, amount: pd.Series) -> pd.Series:
         return base[var] + amount * after
@@ -73,12 +79,9 @@ def build_scenarios(base: pd.DataFrame, af: pd.DataFrame) -> list[Scenario]:
     # 資本コスト式の法定実効税率 TT も同じ比率で引き下げる（論文表で資本コストが低下しているため）
     tt = base["TT"] * (ett / base["ETT"]).where(on > 0, 1.0)
     sc.append(Scenario(5, "法人所得税 名目GDP1%減税", fixed={"ETT": ett}, data={"TT": tt}))
-    # (6) 消費税率 +1%pt
-    # 論文の四半期乗数は、増税初期に「当期の税率変化」と「先行(駆け込み)項」が同時に効いた形と一致する
-    # （消費 −1.300+0.725、住宅 −2.239+0.326+0.655）。初期四半期にリード項分を加えて再現する。
-    sc.append(Scenario(6, "消費税率 +1%pt", data={"RTCI": add("RTCI", 0.01)},
-                       shocks={"CP": 0.725444 * 0.01 * first,
-                               "IHP": (0.326110 + 0.655187) * 0.01 * first}))
+    # (6) 消費税率 +1%pt（2018Q1から）。消費・住宅式のリード項により 2017Q3〜Q4 に駆け込みが生じるので、
+    # 解く期間は SOLVE_START=2017Q3 から（論文の2018Q1の成長率乗数 −2.82 は2017Q4の水準上昇を含意する）
+    sc.append(Scenario(6, "消費税率 +1%pt", data={"RTCI": add("RTCI", 0.01)}))
     # (7) 短期金利 +1%pt
     sc.append(Scenario(7, "短期金利 +1%pt", fixed={"RCD": add("RCD", 1.0)}))
     # (8) 貨幣供給量: 1年目に四半期0.25%ずつ減らし、以後 -1% を維持。金利は貨幣需要式を逆算
@@ -126,21 +129,23 @@ def main() -> None:
     import ecm as ECMOD
 
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--data", default=None, help="モデル用データCSV（既定: data/processed/model_data.csv）")
+    ap.add_argument("--tag", default="", help="出力ファイル名に付けるサフィックス")
     ap.add_argument("--ecm", choices=["esri", "live"], default="esri",
                     help="esri: 消費関数以外の誤差修正項を標準解の値で固定（論文と整合、既定） / live: すべて動かす")
     args = ap.parse_args()
 
-    data = pd.read_csv(ROOT / "data" / "processed" / "model_data.csv", index_col="period")
+    data = pd.read_csv(args.data or ROOT / "data" / "processed" / "model_data.csv", index_col="period")
     data.index = pd.PeriodIndex(data.index, freq="Q")
     model = M.Model()
-    af = model.add_factors(data, START, END)
-    base = model.solve(data, START, END, af)
+    af = model.add_factors(data, SOLVE_START, END)
+    base = model.solve(data, SOLVE_START, END, af)
     core = ["GDP", "CP", "IFP", "GDPV", "PCP", "UR", "RCD", "FXS", "YDV", "BCV"]
-    err = (base.loc[START:END, core] / data.loc[START:END, core] - 1).abs().max()
+    err = (base.loc[SOLVE_START:END, core] / data.loc[SOLVE_START:END, core] - 1).abs().max()
     print("標準解と実績の最大乖離率:", err.map(lambda x: f"{x:.1e}").to_dict())
 
     if args.ecm == "esri":
-        ecm_over, ecm_cols = ECMOD.frozen_overrides(model, base, sim_mask(base.index))
+        ecm_over, ecm_cols = ECMOD.frozen_overrides(model, base, solve_mask(base.index))
         print(f"誤差修正項: {sorted(ECMOD.DEFAULT_LIVE)} のみ有効、{len(ecm_over)} 本を標準解の値で固定")
     else:
         ecm_over, ecm_cols = {}, {}
@@ -152,7 +157,7 @@ def main() -> None:
         for k, val in {**s.data, **ecm_cols}.items():
             d[k] = val
         try:
-            shock = model.solve(d, START, END, af, fixed=s.fixed,
+            shock = model.solve(d, SOLVE_START, END, af, fixed=s.fixed,
                                 overrides={**ecm_over, **s.overrides}, shocks=s.shocks)
         except Exception as e:  # noqa: BLE001 - 失敗したシナリオは報告して続行
             print(f"({s.no}) {s.title}: 失敗 {e}")
@@ -163,7 +168,7 @@ def main() -> None:
 
     rep = pd.concat(results, ignore_index=True)
     out = ROOT / "output"
-    suffix = "" if args.ecm == "esri" else "_ecmlive"
+    suffix = args.tag + ("" if args.ecm == "esri" else "_ecmlive")
     rep.to_csv(out / f"multipliers_reproduced{suffix}.csv", index=False, encoding="utf-8-sig")
     pub = pd.read_csv(out / "published_multipliers.csv")
     cmp_ = (rep[rep.quarter == 0].merge(pub[pub.quarter == 0], on=["scenario", "variable", "year"],

@@ -19,6 +19,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import model as M  # noqa: E402
+import vintage as VT  # noqa: E402
 from sna import seasonal_adjust  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,9 +53,9 @@ def rebase(s: pd.Series, year: int = 2015, level: float = 1.0) -> pd.Series:
 # 読み込み
 # ---------------------------------------------------------------------------
 def load_sna() -> tuple[pd.DataFrame, pd.DataFrame]:
-    q = pd.read_csv(PROC / "sna_quarterly.csv", index_col="period")
+    q = pd.read_csv(VT.processed("sna_quarterly.csv"), index_col="period")
     q.index = pd.PeriodIndex(q.index, freq="Q")
-    a = pd.read_csv(PROC / "sna_annual.csv", index_col="year")
+    a = pd.read_csv(VT.processed("sna_annual.csv"), index_col="year")
     return q, a
 
 
@@ -258,11 +259,13 @@ def build() -> pd.DataFrame:
     ext = load_external()
     D = sna.reindex(IDX).copy()
     D = D.drop(columns=[c for c in ["NFIV", "GNIV", "TPIV", "TINCGV", "YINPV", "TAXNETV"] if c in D])
-    note("GDP CP IHP IFP INP CG IG ING BF XGS MGS KAISA", "ESRI 2015年基準QE(2025Q2 2次) 実質季調年率")
+    note("GDP CP IHP IFP INP CG IG ING BF XGS MGS KAISA", f"ESRI 2015年基準QE（{VT.V['label']}）実質季調年率")
     note("GDPV CPV IHPV IFPV INPV CGV IGV INGV BFV XGSV MGSV RTRIV PTRIV", "ESRI 2015年基準QE 名目季調年率")
     note("YWV YWIV YOLIV YIGV YIEV YICV NIV CCAVG TCIV TCSTV SUBV CSSV TYPV YDV BSSV TYCV OITAXV",
-         "2022年度年次推計 四半期原系列を移動平均比率法で季調し×4")
-    note("CCAV", "GDP−間接税+補助金+海外純所得−国民所得（不突合を含む）")
+         f"{VT.V['annual']}年度年次推計 四半期原系列を移動平均比率法で季調し×4")
+    note("CCAV", "GDP−間接税+補助金+海外純所得−国民所得 を暦年平均で滑らかに補間")
+    note("YCV", "SNA 企業所得（法人＋公的）＋家計賃貸料＋NPISH財産所得 を季調（論文乗数表から逆算した経路と水準比0.998・相関0.96）")
+    note("YIEV", "SNA 家計財産所得（純）から賃貸料を除いたもの（式104の金利反応と整合、法人企業所得の水準が論文と一致）")
     note("SDV", "0（不突合はCCAVに含めた）")
 
     # ---- 暦・ダミー
@@ -422,6 +425,7 @@ def build() -> pd.DataFrame:
     note("LANDV", "SNA 家計（個人企業を含む）期末貸借対照表 土地の暦年末残高を四半期補間")
     note("PLAND PROLA", "代理: SNA 土地残高を指数化（市街地価格指数の代わり）。PROLA＝土地全体÷家計保有")
     D["SHARETV"] = interp_year_end(ann["SHARETV"])
+    note("SHARETV", "SNA 国民資産・負債残高 負債側「うち株式」（発行残高）の暦年末を四半期補間")
     if "PSHARE" in ext:
         D["PSHARE"] = rebase(ext["PSHARE"]).reindex(IDX)
         D["RSHARET"] = D["SHARETV"] / D["PSHARE"]
@@ -448,8 +452,10 @@ def build() -> pd.DataFrame:
     if "LHX" in D:
         tfp = np.exp(M.GAM + M.RAM1 * D["TIME"] + M.RAM2 * D["TIME96Q2"])
         kfp = D["KFPV"] / D["PIFP"]
-        D["ERRPFU"] = D["GDP"] - tfp * (D["LE"] * D["LHX"]) ** M.BETA * (kfp.shift(1) * D["CUX"] / 100) ** (1 - M.BETA)
-        note("ERRPFU", "式54を実績CUXで満たすように逆算（GDP比は data_notes の print を参照）")
+        err = D["GDP"] - tfp * (D["LE"] * D["LHX"]) ** M.BETA * (kfp.shift(1) * D["CUX"] / 100) ** (1 - M.BETA)
+        # 四半期ごとの残差は稼働率の実績ノイズを含むため、GDP比を 2015〜2019 年の平均で一定にする（外生の誤差項）
+        D["ERRPFU"] = (err / D["GDP"]).loc["2015Q1":"2019Q4"].mean() * D["GDP"]
+        note("ERRPFU", "式54を実績で満たす残差の GDP 比（2015〜19年平均）を一定として GDP に乗じたもの")
 
     D["RSBGV"] = np.nan  # 定義式を埋めた後に計算
     D = fill_identities(D)
@@ -460,8 +466,8 @@ def build() -> pd.DataFrame:
 def main() -> None:
     D = build()
     PROC.mkdir(parents=True, exist_ok=True)
-    D.to_csv(PROC / "model_data.csv", encoding="utf-8-sig", index_label="period")
-    pd.Series(NOTES, name="note").rename_axis("variable").to_csv(PROC / "data_notes.csv", encoding="utf-8-sig")
+    D.to_csv(VT.processed("model_data.csv"), encoding="utf-8-sig", index_label="period")
+    pd.Series(NOTES, name="note").rename_axis("variable").to_csv(VT.processed("data_notes.csv"), encoding="utf-8-sig")
 
     model = M.Model()
     need = set(model.endog)
@@ -470,7 +476,8 @@ def main() -> None:
     need |= set(re.findall(r'v\("([A-Z0-9_]+)"', src))
     win = D.loc["2015Q1":"2020Q4"]
     missing = sorted(n for n in need if n not in D.columns or win[n].isna().any())
-    print(f"model_data.csv: {D.shape}")
+    print(f"SNA の版: {VT.NAME} — {VT.V['label']}")
+    print(f"{VT.processed('model_data.csv').name}: {D.shape}")
     print(f"2015Q1〜2020Q4 で欠損がある変数 ({len(missing)}):", missing)
     if "ERRPFU" in D:
         print("ERRPFU/GDP (2015–2019 平均):", round((D["ERRPFU"] / D["GDP"]).loc["2015Q1":"2019Q4"].mean(), 4))
