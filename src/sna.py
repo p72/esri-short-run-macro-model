@@ -194,6 +194,16 @@ def annual_block() -> pd.DataFrame:
         for c in range(1, len(r)):
             if years[c] is not None and r[c] not in (None, "-"):
                 rec.setdefault(int(years[c]), {})[key] = float(r[c])
+    # 家計（個人企業を含む）期末貸借対照表: 家計保有の土地・株式（暦年末）
+    rows = list(openpyxl.load_workbook(RAW / "2022si4_jp.xlsx", read_only=True, data_only=True)
+                ["期末貸借対照表"].iter_rows(values_only=True))
+    years = rows[7]
+    land, share = _find(rows, "ａ．土地"), _find(rows, "うち株式")  # 株式は資産側（最初の出現）
+    for c in range(1, len(years)):
+        if years[c] is not None and str(years[c]).strip().isdigit():
+            y = int(str(years[c]).strip())
+            rec.setdefault(y, {})["LANDV_HH"] = float(land[c])
+            rec[y]["SHAREV_HH"] = float(share[c])
     # 一般政府の固定資産の純取得（年度、GFS）
     rows = list(openpyxl.load_workbook(RAW / "2022s6_2_jp.xlsx", read_only=True, data_only=True)
                 ["経常・資本取引"].iter_rows(values_only=True))

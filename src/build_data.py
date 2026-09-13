@@ -413,11 +413,14 @@ def build() -> pd.DataFrame:
 
     # ---- 資産
     D["LANDT"] = interp_year_end(ann["LANDT"])
-    D["PROLA"] = 1.0
-    D["LANDV"] = D["LANDT"]
+    # 家計保有の土地は SNA 家計部門の期末貸借対照表から。利上げ時の家計の利子収入（式104）は
+    # 家計純資産 NWCV の水準に比例するため、全額家計保有と仮定すると所得効果が過大になる
+    D["LANDV"] = interp_year_end(ann["LANDV_HH"])
+    D["PROLA"] = D["LANDT"] / D["LANDV"]
     D["PLAND"] = rebase(D["LANDT"])
     D["RLAND"] = D["LANDV"] / D["PLAND"]
-    note("PLAND PROLA LANDV", "代理: SNA 土地残高を指数化（市街地価格指数の代わり）。家計保有比率は1と仮定")
+    note("LANDV", "SNA 家計（個人企業を含む）期末貸借対照表 土地の暦年末残高を四半期補間")
+    note("PLAND PROLA", "代理: SNA 土地残高を指数化（市街地価格指数の代わり）。PROLA＝土地全体÷家計保有")
     D["SHARETV"] = interp_year_end(ann["SHARETV"])
     if "PSHARE" in ext:
         D["PSHARE"] = rebase(ext["PSHARE"]).reindex(IDX)
