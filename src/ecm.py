@@ -73,8 +73,10 @@ _PROBE = {"CP": "CP", "IHP": "KHP", "XGS": "XGS", "FUEL": "FUEL", "PXGS": "PXGS"
           "PNFMGSAT": "PNFMGSAT", "PCPAT": "PCPAT", "CGPIAT": "CGPIAT", "PIFPAT": "PIFPAT", "LHX": "LHX",
           "YICV": "YICV", "PLAND": "PLAND"}
 
-# 論文の乗数表と最も整合する既定: 消費関数の誤差修正項のみ動かす
-DEFAULT_LIVE = frozenset({"CP"})
+# 論文の乗数表と最も整合する既定: 消費・個人企業所得・消費デフレータの誤差修正項を動かし、他は固定
+# （1本ずつ有効にする切り分けで消費のみが最良、組み合わせでは CP+YICV+PCPAT が最良。
+#   データの版を変える前後で同じ結果。experiment_ecm_ablation.py / experiment_ecm_combo.py）
+DEFAULT_LIVE = frozenset({"CP", "YICV", "PCPAT"})
 
 
 def frozen_overrides(model: M.Model, base: pd.DataFrame, mask: np.ndarray,
