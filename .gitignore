@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 論文PDFと抽出テキスト（著作物のため同梱しない。src/fetch_paper.py で取得）
+reference/
+
+# 調査用の一時ファイル
+data/raw/_*
+data/processed/_*
