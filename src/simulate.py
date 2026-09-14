@@ -133,10 +133,13 @@ def main() -> None:
     ap.add_argument("--tag", default="", help="出力ファイル名に付けるサフィックス")
     ap.add_argument("--ecm", choices=["esri", "live"], default="esri",
                     help="esri: 消費関数以外の誤差修正項を標準解の値で固定（論文と整合、既定） / live: すべて動かす")
+    ap.add_argument("--itr", choices=["dlog", "level"], default="dlog",
+                    help="式129 所得実効税率の型。dlog: 既定 / level: 論文の印刷どおり（出力に _itrlevel が付く）")
     args = ap.parse_args()
 
     data = pd.read_csv(args.data or ROOT / "data" / "processed" / "model_data.csv", index_col="period")
     data.index = pd.PeriodIndex(data.index, freq="Q")
+    M.ITR_FORM = args.itr
     model = M.Model()
     af = model.add_factors(data, SOLVE_START, END)
     base = model.solve(data, SOLVE_START, END, af)
@@ -169,7 +172,7 @@ def main() -> None:
     # 出力は小数第8位で丸める（ソルバーの丸め誤差 1e-14 程度で再実行のたびに差分が出るのを防ぐ）
     rep = pd.concat(results, ignore_index=True).round({"value": 8})
     out = ROOT / "output"
-    suffix = args.tag + ("" if args.ecm == "esri" else "_ecmlive")
+    suffix = args.tag + ("" if args.ecm == "esri" else "_ecmlive") + ("" if args.itr == "dlog" else "_itrlevel")
     rep.to_csv(out / f"multipliers_reproduced{suffix}.csv", index=False, encoding="utf-8-sig")
     pub = pd.read_csv(out / "published_multipliers.csv")
     cmp_ = (rep[rep.quarter == 0].merge(pub[pub.quarter == 0], on=["scenario", "variable", "year"],
