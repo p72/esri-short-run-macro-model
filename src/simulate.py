@@ -166,7 +166,8 @@ def main() -> None:
         g = results[-1].query("variable == 'GDP' and quarter == 0")["value"].round(2).tolist()
         print(f"({s.no:2d}) {s.title:28s} 実質GDP 年乗数 {g}")
 
-    rep = pd.concat(results, ignore_index=True)
+    # 出力は小数第8位で丸める（ソルバーの丸め誤差 1e-14 程度で再実行のたびに差分が出るのを防ぐ）
+    rep = pd.concat(results, ignore_index=True).round({"value": 8})
     out = ROOT / "output"
     suffix = args.tag + ("" if args.ecm == "esri" else "_ecmlive")
     rep.to_csv(out / f"multipliers_reproduced{suffix}.csv", index=False, encoding="utf-8-sig")
@@ -174,7 +175,7 @@ def main() -> None:
     cmp_ = (rep[rep.quarter == 0].merge(pub[pub.quarter == 0], on=["scenario", "variable", "year"],
                                          suffixes=("_repro", "_paper"))
             .drop(columns=["quarter_repro", "quarter_paper"]))
-    cmp_["diff"] = cmp_["value_repro"] - cmp_["value_paper"]
+    cmp_["diff"] = (cmp_["value_repro"] - cmp_["value_paper"]).round(8)
     cmp_.to_csv(out / f"multipliers_comparison{suffix}.csv", index=False, encoding="utf-8-sig")
     print(f"論文と±0.1以内の割合（全変数×3年）: {(cmp_['diff'].abs() <= 0.1).mean():.1%}")
     key = cmp_[cmp_.variable.isin(["GDP", "CP", "IFP", "PCP", "UR", "RGB", "FXS", "BCVATGDPV"])]
