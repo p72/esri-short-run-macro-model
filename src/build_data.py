@@ -266,7 +266,7 @@ def build() -> pd.DataFrame:
     note("CCAV", "GDP−間接税+補助金+海外純所得−国民所得 を暦年平均で滑らかに補間")
     note("YCV", "SNA 企業所得（法人＋公的）＋家計賃貸料＋NPISH財産所得 を季調（論文乗数表から逆算した経路と水準比0.998・相関0.96）")
     note("YIEV", "SNA 家計財産所得（純）から賃貸料を除いたもの（式104の金利反応と整合、法人企業所得の水準が論文と一致）")
-    note("SDV", "0（不突合はCCAVに含めた）")
+    note("SDV", "定義式(83)(84)を閉じる残差 GDPV−CCAV−ITAXV+SUBV+NFIV−NIV（CCAVを暦年で平滑化した分の四半期変動を含む。2018〜20年はGDP比−1〜+2%）")
 
     # ---- 暦・ダミー
     D = D.join(M.make_calendar(IDX))
