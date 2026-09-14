@@ -18,6 +18,7 @@ python src/published.py        # 論文の乗数詳細表 → output/published_m
 python src/simulate.py         # 11シナリオ → output/multipliers_reproduced.csv, multipliers_comparison.csv
 python src/simulate.py --ecm live   # 比較用: 誤差修正項をすべて動かす（出力に _ecmlive が付く）
 python src/ledger.py           # 変数台帳（論文の定義と実際の系列の突き合わせ・検査）→ data/processed/variable_ledger.csv
+python src/plot_multipliers.py # 実質GDP乗数の経路図 → output/gdp_multiplier_paths.png
 ```
 
 モデル用データ（`data/processed/model_data.csv`）は同梱しているので、上の手順だけで乗数を再現できる。
@@ -44,6 +45,7 @@ e-Stat 由来の生データ（労働力調査、稼働率指数、貿易統計�
 | `src/vintage.py` | SNA データの版（論文と同じ2021年版／2025年版）の切り替え |
 | `src/build_data.py` | 各統計からモデル変数を作成（代用・仮定は `data_notes.csv` に記録） |
 | `src/ledger.py` | 変数台帳の作成と検査（論文付属資料IIの定義・単位・出所と、実際の系列・加工・単位換算・欠損処理の突き合わせ） |
+| `src/plot_multipliers.py` | 実質GDP乗数の四半期経路（論文 vs 再現、11シナリオ）の作図 |
 | `src/sna.py` | SNA 四半期速報・年次推計の読み込み、季節調整（移動平均比率法） |
 | `src/fetch_*.py` | 論文・日銀・ESRI景気動向指数・OECD からの取得 |
 | `src/experiment_ecm*.py` | 誤差修正項の扱いを特定した検証実験（結果は `output/experiment_ecm*.csv`） |
@@ -96,6 +98,10 @@ e-Stat 由来の生データ（労働力調査、稼働率指数、貿易統計�
 
 - 実質GDPの年乗数33個の論文との差は最大0.04。
 - 乗数表の全変数（54変数×11シナリオ×3年）のうち **96.1%** が論文と±0.1以内（誤差修正項をすべて動かすと85.0%）。
+
+四半期の経路（青: 論文、オレンジ破線: 再現）:
+
+![実質GDP乗数の四半期経路（論文 vs 再現）](output/gdp_multiplier_paths.png)
 
 シナリオ別の一致度（全変数×3年のうち論文と±0.1以内の割合）:
 
