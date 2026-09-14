@@ -17,6 +17,7 @@ python src/fetch_paper.py      # 論文PDFを取得しテキスト抽出 → ref
 python src/published.py        # 論文の乗数詳細表 → output/published_multipliers.csv
 python src/simulate.py         # 11シナリオ → output/multipliers_reproduced.csv, multipliers_comparison.csv
 python src/simulate.py --ecm live   # 比較用: 誤差修正項をすべて動かす（出力に _ecmlive が付く）
+python src/ledger.py           # 変数台帳（論文の定義と実際の系列の突き合わせ・検査）→ data/processed/variable_ledger.csv
 ```
 
 モデル用データ（`data/processed/model_data.csv`）は同梱しているので、上の手順だけで乗数を再現できる。
@@ -42,6 +43,7 @@ e-Stat 由来の生データ（労働力調査、稼働率指数、貿易統計�
 | `src/simulate.py` | 論文の11シナリオの定義と乗数の計算・比較 |
 | `src/vintage.py` | SNA データの版（論文と同じ2021年版／2025年版）の切り替え |
 | `src/build_data.py` | 各統計からモデル変数を作成（代用・仮定は `data_notes.csv` に記録） |
+| `src/ledger.py` | 変数台帳の作成と検査（論文付属資料IIの定義・単位・出所と、実際の系列・加工・単位換算・欠損処理の突き合わせ） |
 | `src/sna.py` | SNA 四半期速報・年次推計の読み込み、季節調整（移動平均比率法） |
 | `src/fetch_*.py` | 論文・日銀・ESRI景気動向指数・OECD からの取得 |
 | `src/experiment_ecm*.py` | 誤差修正項の扱いを特定した検証実験（結果は `output/experiment_ecm*.csv`） |
@@ -113,6 +115,31 @@ e-Stat 由来の生データ（労働力調査、稼働率指数、貿易統計�
 | 雇用者報酬 `YWV`・稼働率 `CUX` | 9 | 金利シナリオで、稼働率のわずかな差が労働分配率の式を通じて賃金・労働力人口・就業者に増幅される（需要項目は一致） |
 
 変数別・四半期別の比較は `output/multipliers_comparison.csv` と `output/multipliers_reproduced.csv`。
+
+## 変数台帳（論文の定義と実際のデータの対応）
+
+`data/processed/variable_ledger.csv` に、モデルデータの全234変数について次を記録している（`src/ledger.py` で生成）。
+
+| 列 | 内容 |
+|---|---|
+| `role` / `eq_model` | モデルでの扱い（内生・外生・補助）と `model.py` の式番号 |
+| `paper_*` | 論文 付属資料II の式番号・名称・単位・出所（論文にない変数は「論文にない」） |
+| `model_unit` | モデルデータでの単位（論文が % と書く比率は小数で持つ、など） |
+| `status` | 論文どおり／同種統計・加工差／代用／仮定値／逆算／定義式／残差／定義の解釈／暦・ダミー |
+| `source_used` / `raw_file` | 実際に使った統計・系列コードと `data/raw` のファイル |
+| `transform` / `unit_conversion` / `missing_handling` | 加工手順、原単位→モデル単位の換算、欠損の扱い |
+| `constant_value` / `first_valid` / `n_missing_*` | 実データから計算した定数値・有効期間・欠損数 |
+| `issue` | 関連する Issue 番号 |
+
+`ledger.py` は同時に、記載漏れ・論文との式番号の不一致・「定数」と記した変数が実際に定数か（値も一致するか）・記していない変数が定数になっていないか、を検査する。
+論文と定義や出所が異なる主な変数は次のとおり（詳細は台帳の `status` 列）。
+
+| 区分 | 変数 |
+|---|---|
+| 代用（別の統計で代替） | `HH`（世帯数→15歳以上人口）、`PLAND`（市街地価格指数→SNA土地残高の指数）、`PINP`・`PING`（在庫デフレーター→企業物価・公的固定資本形成デフレーター）、`PFUEL`（SNA→日銀輸入物価）、`BCV`（国際収支→SNA純輸出＋所得収支）、`WD_YVI`（世界GDP→OECD計）、`WD_PX`・`WD_PI`（競争国価格→米国PPI） |
+| 仮定値（全期間一定） | `REQU` 0.40、`SLRATIO` 0.50、`ROR` 2.0、`TINCR` 0、`UREQ` 3.0、`IR` 1、`OTNGV` 0、`ERRBCV` 0 |
+| 逆算（Author 系列の代替） | 転嫁率 `PRT*`、除却率 `RR*`、均衡値 `ITREQ`・`CUXEQ`・`LHXEQ`・`WPHXREQ`、`ERRPFU`、`CCAVGR`・`RSBCV` |
+| 定義の解釈（論文の乗数表から特定） | `YCV`、`YIEV`、`SHARETV`、`SBGV` |
 
 ## データの出典と利用条件
 
