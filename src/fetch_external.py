@@ -59,7 +59,23 @@ def series(df: pd.DataFrame, name: str, source: str) -> pd.DataFrame:
     return pd.DataFrame({"name": name, "date": date, "value": s["OBS_VALUE"], "source": source})
 
 
+def fred_ppi() -> None:
+    """FRED の米国製造業 生産者物価指数（BLS PCUOMFGOMFG、月次）。OECD KEI の PP が 2022年12月で終了したため、
+    2023年以降を含む版（ESRI_VINTAGE=2024）では build_data.py がこのファイルで US_WPI・WD_PX・WD_PI を置き換える."""
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=PCUOMFGOMFG"
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    df = pd.read_csv(io.StringIO(r.text))
+    df.columns = ["date", "value"]
+    df = df.dropna()
+    df.to_csv(RAW / "fred_PCUOMFGOMFG.csv", index=False)
+    print(f"FRED PCUOMFGOMFG: {df.date.min()}〜{df.date.max()} ({len(df)} 行)")
+
+
 def main() -> None:
+    if "--fred" in sys.argv:
+        fred_ppi()
+        return
     parts = esri_ci1()
 
     fin = oecd("OECD.SDD.STES,DSD_STES@DF_FINMARK,4.0", "USA.M.IRLT.PA.....", "2008-01")

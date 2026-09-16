@@ -33,9 +33,31 @@ python src/sna.py              # ESRI 2015年基準SNA → data/processed/sna_*.
 python src/build_data.py       # モデル用四半期データ → data/processed/model_data.csv, data_notes.csv
 ```
 
-SNA の版は `src/vintage.py` で切り替える（既定は論文と同じ版、`ESRI_VINTAGE=2025` で2025年版。出力に `_v2025` が付く）。
-e-Stat 由来の生データ（労働力調査、稼働率指数、貿易統計、毎月勤労統計）と ESRI の SNA ファイルは、
-取得スクリプトを用意していないため `data/raw/` に取得済みのものを同梱している（下記「データの出典と利用条件」）。
+### データの版（vintage）
+
+`src/vintage.py` で切り替える。環境変数 `ESRI_VINTAGE` を付けると、データの作成・台帳・乗数計算がすべてその版で動き、出力ファイルにサフィックスが付く。
+
+| `ESRI_VINTAGE` | 内容 | 期間 | 用途 |
+|---|---|---|---|
+| （既定） | 論文と同じ版: 2021年10-12月期2次QE + 2020年度年次推計（2015年基準） | 2010Q1〜2021Q4 | **論文の乗数表との照合**。式や実装を変えたときは必ずこの版で一致率を確認する |
+| `2024` | 2026年4-6月期2次QE（2020年基準）+ 2024年度年次推計 | 2010Q1〜2024Q4 | **最近の経済での分析**。基準解を 2022〜2024年に置いて乗数や反実仮想を計算する |
+| `2025` | 2025年4-6月期2次QE + 2022年度年次推計 | 2010Q1〜2021Q4 | 版の違いによる感応度の確認（2024年版に置き換わる予定） |
+
+```bash
+# 2024年版でデータを作り直し、2022Q1〜2024Q4 を基準解にして11シナリオを解く
+ESRI_VINTAGE=2024 python src/fetch_sna.py     # ESRI から QE と年次推計の表を data/raw/vintage2024/ に取得
+ESTAT_APP_ID=<your id> python src/fetch_estat.py  # e-Stat: 稼働率（2020年基準）、貿易統計 2021〜25年
+python src/fetch_external.py --fred            # FRED: 米国製造業PPI（OECD の系列が2022年で終了したため）
+ESRI_VINTAGE=2024 python src/sna.py && ESRI_VINTAGE=2024 python src/build_data.py
+ESRI_VINTAGE=2024 python src/ledger.py
+ESRI_VINTAGE=2024 python src/simulate.py --start 2022Q1 --end 2024Q4   # → output/multipliers_reproduced_v2024_2022Q1_2024Q4.csv
+ESRI_VINTAGE=2024 python src/simulate.py                                # 論文期間で解いた場合（一致率 93.5%、データ改定と基準年変更の影響）
+```
+
+2024年版で追加・変更したデータ: 労働力調査は長期時系列表1-a-1（2026年7月分まで）、稼働率指数は2020年基準を2015年基準に重複期間の平均比で接続、貿易統計は2021〜2025年の表を追加、米国PPI（`US_WPI` と競争国価格の代理 `WD_PX`・`WD_PI`）は FRED の製造業PPIに置換。詳細は `data/processed/variable_ledger_v2024.csv`。
+消費税率のリード項（2期先）のため、`simulate.py` はデータ末尾の2期先まで税率を前方補填して解く。
+論文と同じ版の e-Stat 由来の生データ（労働力調査、稼働率指数、貿易統計、毎月勤労統計）と ESRI の SNA ファイルは、
+`data/raw/` に取得済みのものを同梱している（下記「データの出典と利用条件」）。2024年版で追加した分は `src/fetch_sna.py`（ESRI）、`src/fetch_estat.py`（e-Stat API）、`src/fetch_external.py --fred`（FRED）で取得できる。
 
 ## ファイル構成
 
@@ -49,7 +71,7 @@ e-Stat 由来の生データ（労働力調査、稼働率指数、貿易統計�
 | `src/ledger.py` | 変数台帳の作成と検査（論文付属資料IIの定義・単位・出所と、実際の系列・加工・単位換算・欠損処理の突き合わせ） |
 | `src/plot_multipliers.py` | 実質GDP乗数の四半期経路（論文 vs 再現、11シナリオ）の作図 |
 | `src/sna.py` | SNA 四半期速報・年次推計の読み込み、季節調整（移動平均比率法） |
-| `src/fetch_*.py` | 論文・日銀・ESRI景気動向指数・OECD からの取得 |
+| `src/fetch_*.py` | 論文・日銀・ESRI景気動向指数・OECD・FRED からの取得。`fetch_sna.py` は版の SNA ファイル、`fetch_estat.py` は e-Stat API（稼働率・貿易統計） |
 | `src/experiment_ecm*.py` | 誤差修正項の扱いを特定した検証実験（結果は `output/experiment_ecm*.csv`） |
 | `src/experiment_ucc.py` | 法人税減税シナリオの資本コスト `UCC` の寄与分解と感応度（Issue #1、結果は `output/experiment_ucc*.csv`） |
 | `src/check_transcription.py` | 論文の各式の係数・定数と `model.py` の機械照合 |
@@ -141,6 +163,23 @@ e-Stat 由来の生データ（労働力調査、稼働率指数、貿易統計�
 
 変数別・四半期別の比較は `output/multipliers_comparison.csv` と `output/multipliers_reproduced.csv`。
 
+### 2024年版で最近の経済を基準解にした乗数
+
+`ESRI_VINTAGE=2024 python src/simulate.py --start 2022Q1 --end 2024Q4`。基準解は 2022Q1〜2024Q4 の実績。論文期間（2018〜20年）との差は主に GDP の構成比（輸入・投資のシェア）と法人所得の水準の違いによる。
+
+| シナリオ | 実質GDP 年乗数 1年目/2年目/3年目（2022〜24年基準） | 参考: 論文期間（2018〜20年基準、既定版） |
+|---|---|---|
+| (1) 実質公共投資 +GDP1% | 1.08 / 1.09 / 1.02 | 1.08 / 1.10 / 1.02 |
+| (4) 個人所得税減税 GDP1% | 0.20 / 0.32 / 0.32 | 0.21 / 0.31 / 0.30 |
+| (5) 法人所得税減税 GDP1% | 0.31 / 0.51 / 0.48 | 0.34 / 0.56 / 0.49 |
+| (6) 消費税率 +1%pt | −0.23 / −0.22 / −0.22 | −0.23 / −0.23 / −0.23 |
+| (7) 短期金利 +1%pt | −0.35 / −1.09 / −1.33 | −0.33 / −1.01 / −1.20 |
+| (9) 円10%減価 | 0.11 / 0.41 / 0.47 | 0.13 / 0.43 / 0.43 |
+| (10) 原油価格 +20% | −0.10 / −0.18 / −0.22 | −0.08 / −0.13 / −0.16 |
+| (11) 世界需要 +1% | 0.34 / 0.41 / 0.39 | 0.36 / 0.41 / 0.34 |
+
+全変数・四半期別は `output/multipliers_reproduced_v2024_2022Q1_2024Q4.csv`。2024年版を論文期間で解いた場合の乗数表との一致率は 93.5%（`output/multipliers_comparison_v2024.csv`）。
+
 ## 変数台帳（論文の定義と実際のデータの対応）
 
 `data/processed/variable_ledger.csv` に、モデルデータの全234変数について次を記録している（`src/ledger.py` で生成）。
@@ -177,5 +216,7 @@ e-Stat 由来の生データ（労働力調査、稼働率指数、貿易統計�
 | 日本銀行「時系列統計データ検索サイト」（為替、金利、マネーストック、企業物価、資金循環） | `data/raw/boj_*` | [サイトのご利用上の留意点等](https://www.stat-search.boj.or.jp/info/notice.html)（出所明記で転載可） |
 | 政府統計の総合窓口 e-Stat（総務省「労働力調査」、厚生労働省「毎月勤労統計調査」、経済産業省「製造工業生産能力・稼働率指数」、財務省「普通貿易統計」） | `data/raw/estat_*` | [e-Stat 利用規約](https://www.e-stat.go.jp/terms-of-use) |
 | OECD Data Explorer（Financial market, Key short-term economic indicators, Quarterly National Accounts） | `data/raw/oecd_*`, `external_series.csv` | [OECD Terms and Conditions](https://www.oecd.org/en/about/terms-conditions.html)（CC BY 4.0） |
+| FRED（米セントルイス連銀）経由の米労働統計局「Producer Price Index by Industry: Total Manufacturing Industries」（2024年版のみ） | `data/raw/fred_PCUOMFGOMFG.csv` | [FRED Terms of Use](https://fred.stlouisfed.org/legal/)、原データは BLS（パブリックドメイン） |
+| 内閣府 ESRI「国民経済計算（2020年基準）」2026年4-6月期2次QE・2024年度年次推計（2024年版） | `data/raw/vintage2024/*` | 同上（内閣府ホームページ利用規約） |
 
 出典: 内閣府経済社会総合研究所「短期日本経済マクロ計量モデル(2022年版)の構造と乗数分析」ESRI Research Note No.72（`output/published_multipliers.csv` は同論文の付属資料Iの乗数表から作成）。

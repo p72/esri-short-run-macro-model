@@ -22,12 +22,17 @@ VINTAGES = {
     # 取得時点の最新版
     "2025": dict(dir=RAW, qe="2522", annual="2022", suffix="_v2025",
                  label="2025年4-6月期2次QE + 2022年度年次推計"),
+    # 2024Q4 まで延長した版（2020年基準）: 2026年4-6月期2次QE + 2024年度年次推計
+    "2024": dict(dir=RAW / "vintage2024", qe="2622", annual="2024", suffix="_v2024", end="2024Q4", raw_end_year=2025,
+                 label="2026年4-6月期2次QE（2020年基準）+ 2024年度年次推計（2025年12月公表）"),
 }
 
 NAME = os.environ.get("ESRI_VINTAGE", "2021")
 if NAME not in VINTAGES:
     raise SystemExit(f"ESRI_VINTAGE は {sorted(VINTAGES)} のいずれか: {NAME}")
 V = VINTAGES[NAME]
+END = V.get("end", "2021Q4")  # モデル用データの最終四半期
+RAW_END_YEAR = V.get("raw_end_year", 2020)  # e-Stat 貿易統計など、年単位で追加取得する原データの使用最終年
 
 
 def qe_file(series: str) -> Path:
