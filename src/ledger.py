@@ -26,7 +26,7 @@ import vintage as VT  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 PAPER = ROOT / "reference" / "rn72_2022model.txt"
-WINDOW = ("2010Q1", "2021Q4")   # model_data の期間
+WINDOW = ("2010Q1", VT.END)   # model_data の期間
 SOLVE = ("2017Q3", "2020Q4")    # simulate.py が解く期間
 
 SOURCE_ABBR = {
@@ -111,24 +111,26 @@ def parse_paper(path: Path = PAPER) -> pd.DataFrame:
 # 実際に使った系列・加工（build_data.py / sna.py / fetch_*.py を要約）
 # ---------------------------------------------------------------------------
 V = VT.V
-QE = f"{V['dir'].name if V['dir'] != VT.RAW else 'data/raw'}/gaku-jk{V['qe']}.csv 等"
 ANN = f"{V['annual']}年度年次推計"
-RAWDIR = "data/raw/vintage2021" if VT.NAME == "2021" else "data/raw"
+RAWDIR = f"data/raw/{V['dir'].name}" if V["dir"] != VT.RAW else "data/raw"
+EXT = pd.Period(VT.END, "Q") > pd.Period("2022Q4", "Q")   # 2022年以降に延長した版（稼働率・貿易・米国PPI・労働力調査の追加ファイルを使う）
+LFS_FILE = f"{RAWDIR}/estat_lfs_000031831358.xlsx" if EXT else "data/raw/estat_lfs_000040115411.xlsx"
+BASEYEAR = "2020" if EXT else "2015"   # QE の基準年（2024年版は2020年基準）
 
 # (変数, 区分, 使用した系列・出所, 原ファイル, 加工, 単位換算, 欠損処理, 定数値, 関連Issue)
 ENTRIES: list[tuple] = [
     ("GDP CP IHP IFP INP CG IG ING BF XGS MGS", "論文どおり",
-     f"ESRI 2015年基準 四半期GDP速報 実質（連鎖）季節調整系列 {V['label']}",
+     f"ESRI {BASEYEAR}年基準 四半期GDP速報 実質（連鎖）季節調整系列 {V['label']}",
      f"{RAWDIR}/gaku-jk{V['qe']}.csv", "そのまま", "10億円・年率（公表単位のまま）", "なし", None, ""),
     ("KAISA", "論文にない補助変数",
      "ESRI 四半期GDP速報 実質 開差（連鎖方式の不突合）", f"{RAWDIR}/gaku-jk{V['qe']}.csv",
      "式2（実質GDPの定義式）を実績で閉じるために使用", "10億円・年率", "なし", None, ""),
     ("GDPV CPV IHPV IFPV INPV CGV IGV INGV BFV XGSV MGSV RTRIV PTRIV", "論文どおり",
-     f"ESRI 2015年基準 四半期GDP速報 名目 季節調整系列 {V['label']}",
+     f"ESRI {BASEYEAR}年基準 四半期GDP速報 名目 季節調整系列 {V['label']}",
      f"{RAWDIR}/gaku-mk{V['qe']}.csv", "そのまま", "10億円・年率", "なし", None, ""),
     ("PGDP PCP PIHP PIFP PCG PIG PXGS PMGS", "論文どおり",
      "ESRI 四半期GDP速報 デフレーター（季調系列）", f"{RAWDIR}/def-qk{V['qe']}.csv, gaku-mk{V['qe']}.csv, gaku-jk{V['qe']}.csv",
-     "sna.py が def-qk を読むが、build_data.py で名目÷実質に置き換える（公表値と一致、丸め誤差を避ける）", "2015年=100 → 2015年=1", "なし", None, ""),
+     "sna.py が def-qk を読むが、build_data.py で名目÷実質に置き換える（公表値と一致、丸め誤差を避ける）", f"{BASEYEAR}年=100 → {BASEYEAR}年=1", "なし", None, ""),
     ("YWV", "同種統計・加工差",
      "ESRI 四半期GDP速報 雇用者報酬 名目 季節調整系列（kshotoku 表）", f"{RAWDIR}/kshotoku-q{V['qe']}.csv",
      "公式季調値をそのまま使用（自前の移動平均比率法との差 0.15%）", "10億円・年率", "公表のない四半期は年次推計の原系列を自前で季調", None, ""),
@@ -199,7 +201,7 @@ ENTRIES: list[tuple] = [
     ("PFUEL", "代用", "日本銀行 輸入物価指数 円ベース 石油・石炭・天然ガス（PR01/PRCG20_2600520001）。論文は SNA の鉱物性燃料輸入デフレーター",
      "data/raw/boj_series.csv", "月次→四半期平均→2015年平均=1", "2015年=100 → 2015年=1", "なし", None, "#3"),
     ("FUELV", "同種統計・加工差", "財務省 普通貿易統計（e-Stat）鉱物性燃料 輸入額 全国合計（論文は日本関税協会 外国貿易概況）",
-     "data/raw/estat_trade_fuel_0003228199.csv, estat_trade_fuel_0003313968.csv",
+     "data/raw/estat_trade_fuel_0003228199.csv, estat_trade_fuel_0003313968.csv" + (", estat_trade_fuel_0003425296.csv" if EXT else ""),
      "月次→四半期合計→移動平均比率法で季調", "千円 ÷1e6 ×4 → 10億円・年率", "なし", None, ""),
     ("FUEL", "定義式", "FUELV ÷ PFUEL（式11）", "", "", "10億円・年率", "なし", None, ""),
     ("NFMGSV NFMGS PNFMGS", "定義式", "MGSV − FUELV、MGS − FUEL、NFMGSV ÷ NFMGS（式25,12,82。連鎖の非加法性は無視）", "", "", "10億円・年率／2015年=1", "なし", None, ""),
@@ -207,19 +209,20 @@ ENTRIES: list[tuple] = [
     ("FXS", "論文どおり", "日本銀行 東京市場 ドル・円スポット 17時時点 月中平均（FM08/FXERM07）", "data/raw/boj_series.csv",
      "月次→四半期平均", "円/ドル", "なし", None, ""),
     ("POILD", "同種統計・加工差", "財務省 普通貿易統計（e-Stat）原油及び粗油 輸入金額÷数量（論文は日本関税協会 外国貿易概況）",
-     "data/raw/estat_trade_crude_0003228199.csv, estat_trade_crude_0003313968.csv",
+     "data/raw/estat_trade_crude_0003228199.csv, estat_trade_crude_0003313968.csv" + (", estat_trade_crude_0003425296.csv" if EXT else ""),
      "月次→四半期合計で単価", "千円/kL ×1000 → 円/kL ÷ FXS → ドル/kL ÷ 6.2898 → ドル/バレル", "なし", None, ""),
     # ---- 労働
-    ("LF LE LW UR", "論文どおり", "総務省 労働力調査 長期時系列 主要項目 月次 季節調整値（e-Stat 000040115411）",
-     "data/raw/estat_lfs_000040115411.xlsx", "月次→四半期平均", "万人・%（公表単位のまま）", "なし", None, ""),
-    ("POP", "論文どおり", "総務省 労働力調査 労働力人口 + 非労働力人口（15歳以上人口）", "data/raw/estat_lfs_000040115411.xlsx",
+    ("LF LE LW UR", "論文どおり", "総務省 労働力調査 長期時系列表1-a-1 主要項目 月次 季節調整値（e-Stat）",
+     LFS_FILE, "月次→四半期平均", "万人・%（公表単位のまま）", "なし", None, ""),
+    ("POP", "論文どおり", "総務省 労働力調査 労働力人口 + 非労働力人口（15歳以上人口）", LFS_FILE,
      "月次季調値の和→四半期平均", "万人", "なし", None, ""),
     ("RLEW", "定義式（逆算）", "LW ÷ LE（式53 を実績で閉じる）", "", "", "小数", "なし", None, ""),
     ("POP65", "同種統計・加工差", "総務省 労働力調査 基本集計 15歳以上人口 65歳以上 四半期（e-Stat 0003005798 系）",
      "data/raw/estat_lfs_pop65_q.csv", "四半期原系列（季調なし）", "万人",
      "2018Q1 より前は POP × (2018Q1 の POP65/POP 比) で延長（式47・140 は当期値のみ使用）", None, "#3"),
     ("HH", "代用", "= POP（15歳以上人口）。論文は住民基本台帳の世帯数", "", "", "万人（論文は1万世帯）", "なし", None, "#3"),
-    ("CUX", "論文どおり", "経済産業省 製造工業 稼働率指数 季節調整済 2015年=100（e-Stat）", "data/raw/estat_cux_2015base.csv",
+    ("CUX", "論文どおり", "経済産業省 製造工業 稼働率指数 季節調整済（e-Stat。2015年基準" + ("、2018年1月以降は2020年基準を重複期間の平均比で接続" if EXT else "") + "）",
+     "data/raw/estat_cux_2015base.csv" + (", estat_cux_2020base.csv" if EXT else ""),
      "月次→四半期平均", "2015年=100（論文の単位表記は %）", "なし", None, ""),
     ("LHX", "同種統計・加工差", "厚生労働省 毎月勤労統計 長期時系列表29 総実労働時間指数 事業所規模5人以上 調査産業計 就業形態計 原指数",
      "data/raw/estat_maikin_t29_hours_5plus.xls", "四半期原指数→移動平均比率法で季調→2015年平均=100", "2015年=100", "なし", None, ""),
@@ -278,12 +281,18 @@ ENTRIES: list[tuple] = [
     ("RSBCV", "逆算（Author 系列の代替）", "(SBCV − BCV/4) ÷ SBCV(-1)（式149 を実績で閉じる累積経常収支調整項）", "", "", "小数", "2010Q1 は欠損（ラグ）", None, ""),
     ("US_RGB", "同種統計", "OECD Financial market statistics 米国 長期金利 IRLT（10年国債利回り、月次）。論文は IMF IFS",
      "data/raw/oecd_DSD_STES_DF_FINMARK_USA_M_IRLT_PA_____.csv → external_series.csv", "月次→四半期平均", "%", "なし", None, ""),
-    ("US_WPI", "同種統計", "OECD Key short-term economic indicators 米国 生産者物価 PP（製造業 activity=C、月次、2015年=100）。論文は IMF IFS",
-     "data/raw/oecd_DSD_KEI_DF_KEI_USA-G7-OECD_M_PP_IX___.csv → external_series.csv", "月次→四半期平均",
-     "2015年=100 のまま（論文は 2015年=1。式147 には対数比で入り、水準差は誤差項に吸収）", "2023年以降は OECD 未公表（モデル期間外）", None, "#3"),
-    ("WD_PX WD_PI", "代用", "= 米国 生産者物価（US_WPI と同じ系列）。論文は競争国の輸出・輸入価格の加重平均（IMF IFS）。OECD の G7 集計が取得できず米国で代用",
-     "data/raw/oecd_DSD_KEI_DF_KEI_USA-G7-OECD_M_PP_IX___.csv → external_series.csv", "月次→四半期平均", "2015年=100（式9, 65, 80 には対数差・比で入る）",
-     "2023年以降は OECD 未公表（モデル期間外）", None, "#3"),
+    ("US_WPI", "同種統計",
+     ("FRED 米国製造業 生産者物価指数 PCUOMFGOMFG（BLS、月次）。論文は IMF IFS" if EXT else
+      "OECD Key short-term economic indicators 米国 生産者物価 PP（製造業 activity=C、月次、2015年=100）。論文は IMF IFS"),
+     ("data/raw/fred_PCUOMFGOMFG.csv" if EXT else "data/raw/oecd_DSD_KEI_DF_KEI_USA-G7-OECD_M_PP_IX___.csv → external_series.csv"),
+     "月次→四半期平均" + ("→2015年平均=100" if EXT else ""),
+     "2015年=100 のまま（論文は 2015年=1。式147 には対数比で入り、水準差は誤差項に吸収）",
+     "なし" if EXT else "2023年以降は OECD 未公表（モデル期間外）", None, "#3"),
+    ("WD_PX WD_PI", "代用",
+     "= 米国 生産者物価（US_WPI と同じ系列）。論文は競争国の輸出・輸入価格の加重平均（IMF IFS）。" + ("OECD の系列が2022年で終了したため FRED の米国PPIで代用" if EXT else "OECD の G7 集計が取得できず米国で代用"),
+     ("data/raw/fred_PCUOMFGOMFG.csv" if EXT else "data/raw/oecd_DSD_KEI_DF_KEI_USA-G7-OECD_M_PP_IX___.csv → external_series.csv"),
+     "月次→四半期平均", "2015年=100（式9, 65, 80 には対数差・比で入る）",
+     "なし" if EXT else "2023年以降は OECD 未公表（モデル期間外）", None, "#3"),
     ("WD_YVI", "代用", "OECD Quarterly National Accounts OECD 加盟国計 実質GDP 指数（2015年=100、季調）。論文は世界GDP（日本除く、IMF WEO）",
      "data/raw/oecd_DSD_NAMAIN1_DF_QNA_Q_Y_OECD_S1_S1_B1GQ__Z__Z__Z____.csv → external_series.csv", "四半期そのまま（日本を含む）", "2015年=100", "なし", None, "#3"),
     # ---- 資産
@@ -403,8 +412,8 @@ def build_ledger(data: pd.DataFrame, paper: pd.DataFrame) -> tuple[pd.DataFrame,
             constant_value=const_val if is_const else "",
             first_valid=str(s.first_valid_index() or ""),
             last_valid=str(s.last_valid_index() or ""),
-            n_missing_2010_2021=int(s.isna().sum()),
-            n_missing_solve_period=int(solve[var].isna().sum()),
+            n_missing_window=int(s.isna().sum()),
+            n_missing_solve_period=int(solve[var].isna().sum()) if solve[var].size else 0,
             issue=issue,
         ))
         if var not in MODEL_UNIT:

@@ -17,10 +17,12 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import model as M  # noqa: E402
+import vintage as VT  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-START, END = "2018Q1", "2020Q4"      # 乗数表の対象期間
-SOLVE_START = "2017Q3"              # 解く期間の始まり。消費税率のリード項（2期先まで）が2017Q3〜Q4に効く
+PAPER_START, PAPER_END = "2018Q1", "2020Q4"   # 論文の乗数表の対象期間
+START, END = PAPER_START, PAPER_END           # 乗数を表示する期間（--start/--end で変更可）
+SOLVE_START = "2017Q3"              # 解く期間の始まり。消費税率のリード項（2期先まで）が START の2期前から効く
 
 # 乗数表の変数と表示（pt=乖離幅、それ以外は乖離率%）
 PT_VARS = {"GDPD", "UR", "GDPGAP", "RCD", "RGB", "PERR", "BGVATGDPV", "SBGVATGDPV", "BCVATGDPV"}
@@ -129,7 +131,10 @@ def main() -> None:
     import ecm as ECMOD
 
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--data", default=None, help="モデル用データCSV（既定: data/processed/model_data.csv）")
+    ap.add_argument("--data", default=None,
+                    help="モデル用データCSV（既定: 版に応じた data/processed/model_data*.csv。版は環境変数 ESRI_VINTAGE）")
+    ap.add_argument("--start", default=PAPER_START, help="乗数を表示する最初の四半期（既定 2018Q1。解く期間はその2期前から）")
+    ap.add_argument("--end", default=PAPER_END, help="乗数を表示する最後の四半期（既定 2020Q4）")
     ap.add_argument("--tag", default="", help="出力ファイル名に付けるサフィックス")
     ap.add_argument("--ecm", choices=["esri", "live"], default="esri",
                     help="esri: 消費関数以外の誤差修正項を標準解の値で固定（論文と整合、既定） / live: すべて動かす")
@@ -137,8 +142,21 @@ def main() -> None:
                     help="式129 所得実効税率の型。dlog: 既定 / level: 論文の印刷どおり（出力に _itrlevel が付く）")
     args = ap.parse_args()
 
-    data = pd.read_csv(args.data or ROOT / "data" / "processed" / "model_data.csv", index_col="period")
+    global START, END, SOLVE_START
+    START, END = args.start, args.end
+    SOLVE_START = str(pd.Period(START, "Q") - 2)
+    paper_window = (START, END) == (PAPER_START, PAPER_END)
+
+    data = pd.read_csv(args.data or VT.processed("model_data.csv"), index_col="period")
     data.index = pd.PeriodIndex(data.index, freq="Q")
+    if pd.Period(END, "Q") > data.index.max():
+        raise SystemExit(f"データは {data.index.max()} までです（--end {END} は解けません）")
+    # 式3・5の消費税率リード項（2期先）のため、データ末尾の2期先まで外生の税率を前方補填する
+    need_end = pd.Period(END, "Q") + 2
+    if need_end > data.index.max():
+        data = data.reindex(pd.period_range(data.index.min(), need_end, freq="Q"))
+        data["RTCI"] = data["RTCI"].ffill()
+    print(f"データ: {args.data or VT.processed('model_data.csv').name}（{VT.V['label']}）、解く期間 {SOLVE_START}〜{END}、表示 {START}〜{END}")
     M.ITR_FORM = args.itr
     model = M.Model()
     af = model.add_factors(data, SOLVE_START, END)
@@ -172,8 +190,14 @@ def main() -> None:
     # 出力は小数第8位で丸める（ソルバーの丸め誤差 1e-14 程度で再実行のたびに差分が出るのを防ぐ）
     rep = pd.concat(results, ignore_index=True).round({"value": 8})
     out = ROOT / "output"
-    suffix = args.tag + ("" if args.ecm == "esri" else "_ecmlive") + ("" if args.itr == "dlog" else "_itrlevel")
+    suffix = (args.tag + ("" if args.data else VT.V["suffix"]) + ("" if paper_window else f"_{START}_{END}")
+              + ("" if args.ecm == "esri" else "_ecmlive") + ("" if args.itr == "dlog" else "_itrlevel"))
     rep.to_csv(out / f"multipliers_reproduced{suffix}.csv", index=False, encoding="utf-8-sig")
+    if not paper_window:
+        # 論文の乗数表は 2018Q1〜2020Q4 の標準解に対するものなので、他の期間では比較しない
+        key = rep[(rep.quarter == 0) & rep.variable.isin(["GDP", "CP", "IFP", "PCP", "UR", "RGB", "FXS", "BCVATGDPV"])]
+        print(key.pivot_table(index=["scenario", "variable"], columns="year", values="value").round(2).to_string())
+        return
     pub = pd.read_csv(out / "published_multipliers.csv")
     cmp_ = (rep[rep.quarter == 0].merge(pub[pub.quarter == 0], on=["scenario", "variable", "year"],
                                          suffixes=("_repro", "_paper"))

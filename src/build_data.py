@@ -25,7 +25,7 @@ from sna import seasonal_adjust  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "data" / "raw"
 PROC = ROOT / "data" / "processed"
-START, END = "2010Q1", "2021Q4"
+START, END = "2010Q1", VT.END
 IDX = pd.period_range(START, END, freq="Q")
 
 NOTES: dict[str, str] = {}
@@ -73,7 +73,9 @@ def load_boj() -> dict[str, pd.Series]:
 
 
 def load_lfs() -> pd.DataFrame:
-    rows = list(openpyxl.load_workbook(RAW / "estat_lfs_000040115411.xlsx", read_only=True, data_only=True)
+    """労働力調査 長期時系列表1-a-1 主要項目 月次季節調整値。版のフォルダに新しいファイルがあればそれを使う."""
+    files = sorted(VT.V["dir"].glob("estat_lfs_*.xlsx")) or [RAW / "estat_lfs_000040115411.xlsx"]
+    rows = list(openpyxl.load_workbook(files[-1], read_only=True, data_only=True)
                 ["季節調整値"].iter_rows(values_only=True))
     recs, k = [], 0
     for r in rows[10:]:
@@ -101,11 +103,25 @@ def load_pop65() -> pd.Series:
     return s
 
 
-def load_cux() -> pd.Series:
-    d = pd.read_csv(RAW / "estat_cux_2015base.csv", dtype={"cat01_name": str})
-    d = d[(d["cat02_code"] == 1100000000) & d["cat01_name"].str.fullmatch(r"\d{6}")]
+def _cux_file(name: str) -> pd.Series:
+    d = pd.read_csv(RAW / name, dtype={"cat01_name": str})
+    d = d[(d["cat02_code"].astype(int) == 1100000000) & d["cat01_name"].str.fullmatch(r"\d{6}")]
     idx = pd.PeriodIndex([pd.Period(year=int(s[:4]), month=int(s[4:]), freq="M") for s in d["cat01_name"]])
-    return to_q(pd.Series(d["value"].to_numpy(dtype=float), index=idx).sort_index())
+    return pd.Series(d["value"].to_numpy(dtype=float), index=idx).sort_index()
+
+
+def load_cux() -> pd.Series:
+    """製造工業 稼働率指数（季調、月次→四半期平均）。2015年基準（〜2023年3月）を、重複期間の平均比で
+    2020年基準（2018年1月〜）に接続する（2024年版のように 2023年以降が必要な場合）."""
+    s15 = _cux_file("estat_cux_2015base.csv")
+    f20 = RAW / "estat_cux_2020base.csv"
+    if f20.exists() and pd.Period(END, "Q") > s15.index.max().asfreq("Q"):
+        s20 = _cux_file("estat_cux_2020base.csv")
+        ov = s15.index.intersection(s20.index)
+        s = pd.concat([s15[s15.index < s20.index.min()], s20 * (s15[ov] / s20[ov]).mean()])
+        note("CUX", f"製造工業稼働率指数 季調 月次→四半期平均。2015年基準を重複期間（{ov.min()}〜{ov.max()}）の平均比で2020年基準に接続")
+        return to_q(s)
+    return to_q(s15)
 
 
 def load_hours() -> pd.Series:
@@ -133,6 +149,8 @@ def load_trade(prefix: str) -> pd.DataFrame | None:
     d["month"] = d["cat02_name"].str.extract(r"(\d+)月").astype(int)
     d["kind"] = np.where(d["cat02_name"].str.contains("金額"), "value", "qty")
     d["year"] = d["time_name"].str.extract(r"(\d{4})").astype(int)
+    # 版ごとに使う原データの最終年を固定する（後年のデータを足すと季節調整の因子が変わり、論文版の再現が動くため）
+    d = d[d["year"] <= VT.RAW_END_YEAR]
     g = d.groupby(["year", "month", "kind"])["value"].sum().unstack("kind")
     g.index = pd.PeriodIndex([pd.Period(year=y, month=m, freq="M") for y, m in g.index])
     return g.sort_index()
@@ -386,8 +404,8 @@ def build() -> pd.DataFrame:
     D["ETT"] = D["TYCV"] / D["YCV"].shift(1).rolling(4).mean()
     D["TT"] = fy_to_q(pd.Series({2010: .4069, 2011: .4069, 2012: .3801, 2013: .3801, 2014: .3464,
                                  2015: .3211, 2016: .2997, 2017: .2997, 2018: .2974, 2019: .2974,
-                                 2020: .2974, 2021: .2974}))
-    note("TT", "法人実効税率（財務省公表, 年度）")
+                                 2020: .2974, 2021: .2974, 2022: .2974, 2023: .2974, 2024: .2974, 2025: .2974}))
+    note("TT", "法人実効税率（財務省公表, 年度。2018年度以降 29.74% で据え置き）")
     D["RTCST"] = D["TCSTV"] / D["MGSV"]
     D["SR"] = calendar_step([("2010Q1", .16058), ("2010Q4", .16412), ("2011Q4", .16766), ("2012Q4", .17120),
                              ("2013Q4", .17474), ("2014Q4", .17828), ("2015Q4", .18182), ("2016Q4", .18300)])
@@ -413,6 +431,16 @@ def build() -> pd.DataFrame:
     for name in ["US_RGB", "US_WPI", "WD_YVI", "WD_PX", "WD_PI"]:
         if name in ext:
             D[name] = ext[name].reindex(IDX)
+    # OECD の生産者物価（KEI PP）は 2022年12月で終了。それ以降が必要な版では FRED の米国製造業PPI
+    # （PCUOMFGOMFG）を 2015年平均=100 にして US_WPI と競争国価格の代理（WD_PX, WD_PI）に使う
+    fred = RAW / "fred_PCUOMFGOMFG.csv"
+    if fred.exists() and pd.Period(END, "Q") > pd.Period("2022Q4", "Q"):
+        f = pd.read_csv(fred, parse_dates=["date"]).dropna()
+        s = pd.Series(f["value"].to_numpy(dtype=float), index=pd.PeriodIndex(f["date"], freq="M"))
+        ppi = rebase(to_q(s), level=100).reindex(IDX)
+        for name in ["US_WPI", "WD_PX", "WD_PI"]:
+            D[name] = ppi
+        note("US_WPI WD_PX WD_PI", "FRED 米国製造業 生産者物価指数 PCUOMFGOMFG（BLS）月次→四半期平均→2015年=100（OECD KEI PP が2022年12月で終了したため全期間を置換。WD_PX/WD_PI は米国PPIで代用）")
 
     # ---- 資産
     D["LANDT"] = interp_year_end(ann["LANDT"])
@@ -474,11 +502,11 @@ def main() -> None:
     import inspect
     src = inspect.getsource(M)
     need |= set(re.findall(r'v\("([A-Z0-9_]+)"', src))
-    win = D.loc["2015Q1":"2020Q4"]
+    win = D.loc["2015Q1":END]
     missing = sorted(n for n in need if n not in D.columns or win[n].isna().any())
     print(f"SNA の版: {VT.NAME} — {VT.V['label']}")
     print(f"{VT.processed('model_data.csv').name}: {D.shape}")
-    print(f"2015Q1〜2020Q4 で欠損がある変数 ({len(missing)}):", missing)
+    print(f"2015Q1〜{END} で欠損がある変数 ({len(missing)}):", missing)
     if "ERRPFU" in D:
         print("ERRPFU/GDP (2015–2019 平均):", round((D["ERRPFU"] / D["GDP"]).loc["2015Q1":"2019Q4"].mean(), 4))
     cols = [c for c in ["GDP", "FUELV", "POILD", "LF", "UR", "CUX", "M2CD", "RCD", "KFPV", "RRFPV",
