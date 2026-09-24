@@ -21,6 +21,7 @@ python src/simulate.py --itr level  # 比較用: 式129を論文の印刷どお�
 python src/check_transcription.py   # 152本の係数・定数を論文と機械照合
 python src/ledger.py           # 変数台帳（論文の定義と実際の系列の突き合わせ・検査）→ data/processed/variable_ledger.csv
 python src/plot_multipliers.py # 実質GDP乗数の経路図 → output/gdp_multiplier_paths.png
+python src/plot_tax_cut_vs_benefit.py # 消費税減税 vs 給付金（GDP1%規模）の経路図 → output/tax_cut_vs_benefit.png
 ```
 
 モデル用データ（`data/processed/model_data.csv`）は同梱しているので、上の手順だけで乗数を再現できる。
@@ -70,6 +71,7 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 | `src/build_data.py` | 各統計からモデル変数を作成（代用・仮定は `data_notes.csv` に記録） |
 | `src/ledger.py` | 変数台帳の作成と検査（論文付属資料IIの定義・単位・出所と、実際の系列・加工・単位換算・欠損処理の突き合わせ） |
 | `src/plot_multipliers.py` | 実質GDP乗数の四半期経路（論文 vs 再現、11シナリオ）の作図 |
+| `src/plot_tax_cut_vs_benefit.py` | 名目GDP1%規模の消費税減税 vs 給付金の実質GDP・財政収支/GDP の3年間経路（`output/tax_cut_vs_benefit.{csv,png}`） |
 | `src/sna.py` | SNA 四半期速報・年次推計の読み込み、季節調整（移動平均比率法） |
 | `src/fetch_*.py` | 論文・日銀・ESRI景気動向指数・OECD・FRED からの取得。`fetch_sna.py` は版の SNA ファイル、`fetch_estat.py` は e-Stat API（稼働率・貿易統計） |
 | `src/experiment_ecm*.py` | 誤差修正項の扱いを特定した検証実験（結果は `output/experiment_ecm*.csv`） |
@@ -179,6 +181,24 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 | (11) 世界需要 +1% | 0.34 / 0.41 / 0.39 | 0.36 / 0.41 / 0.34 |
 
 全変数・四半期別は `output/multipliers_reproduced_v2024_2022Q1_2024Q4.csv`。2024年版を論文期間で解いた場合の乗数表との一致率は 93.5%（`output/multipliers_comparison_v2024.csv`）。
+
+### 応用例: 名目GDP1%規模の消費税減税 vs 給付金
+
+`python src/plot_tax_cut_vs_benefit.py`（既定版、基準解は 2018Q1〜2020Q4 の実績）。同じ規模の減収で比べる。
+
+- 消費税減税: 事前の税収減が名目GDPの1%になる引下げ幅（このモデルの2018年の税収ベース・税率8%で 2.21%pt）を 2018Q1 から恒久的に与える。参考に 2.0%pt（乗数表の線形換算）も描く。
+- 給付金: 個人所得税を名目GDPの1%減税（論文シナリオ(4)。モデルでは給付金も可処分所得を通じて同じに効く）。
+- 実施の2四半期前から解くので、消費税減税ではリード項による実施前の買い控えと実施直後の反動が出る。
+
+| 年平均 | 実質GDP（%）減税 / 給付金 | 財政収支/名目GDP（%pt）減税 / 給付金 |
+|---|---|---|
+| 1年目（2018） | +0.48 / +0.21 | −0.76 / −0.95 |
+| 2年目（2019） | +0.44 / +0.31 | −0.61 / −0.87 |
+| 3年目（2020） | +0.40 / +0.30 | −0.57 / −0.87 |
+
+消費税減税の財政コストが事前の1%より小さく見えるのは、税収の増加に加えて、物価下落で名目の政府支出が減る会計効果が約0.2%pt 含まれるため。四半期別は `output/tax_cut_vs_benefit.csv`（列は シナリオ×{GDP, BGV, CP}）。
+
+![消費税減税 vs 給付金](output/tax_cut_vs_benefit.png)
 
 ## 変数台帳（論文の定義と実際のデータの対応）
 
