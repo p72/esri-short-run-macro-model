@@ -438,6 +438,7 @@ def check_raw_files(ledger: pd.DataFrame) -> list[str]:
     for v in VT.VINTAGES.values():
         referenced |= {f"{s}{v['qe']}.csv" for s in ["gaku-jk", "gaku-mk", "def-qk", "kshotoku-q"]}
         referenced |= {f"{v['annual']}{t}_jp.xlsx" for t in ["qom2", "i4", "i5", "ss4n", "ss1", "ss5", "si4", "s6_2"]}
+        referenced.add(f"{v['annual']}s12n_jp.xlsx")  # 家計の目的別消費（plot_food_tax_cut_vs_benefit.py の食料品支出）
     unref = []
     for f in sorted((ROOT / "data" / "raw").rglob("*")):
         if f.is_file() and not f.name.startswith("_") and f.name not in referenced \
