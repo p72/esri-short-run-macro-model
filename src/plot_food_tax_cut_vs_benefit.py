@@ -6,7 +6,7 @@
   ESRI 2024年度年次推計「家計の目的別最終消費支出の構成（名目）」の 1.食料・非アルコール飲料 F（税込み）から
   減収額 = F × (0.08 − 0.01) / 1.08。暦年の F / 国内家計最終消費支出 の比を各四半期の CPV に掛けて四半期化する。
   外食（10%）と酒類は対象外。テイクアウト・出前は SNA では外食・宿泊に入るため含めない（その分は過小）。
-  --loss-tn 4.4 のように与えると、事前の減収額の3年平均がその額（兆円/年）になるよう税率の引下げ幅を決める
+  --loss-tn 4.4 のように与えると、事前の減収額の実施期間（恒久なら3年、時限ならその期間）の平均がその額（兆円/年）になるよう税率の引下げ幅を決める
   （報道・木内氏コラムの 4.4兆円 = 食料品ゼロ税率の約5兆円 × 7/8。軽減税率の対象全体・2026年ごろの物価水準に相当）。
 
 モデルでの与え方
@@ -15,10 +15,10 @@
     消費デフレーターの低下（事前の減収額 ÷ 名目消費。SNA 基準では食料品の比率 × 7/108）と、式73の低下が2022年に一致するよう決める。
   - RTCIREV: 消費税収(134)の消費部分に使う。引下げ幅は、2022年の事前の税収減（消費以外は基準解のまま）が上の減収額と一致するよう決める。
   （1本で両方を合わせると、式134の消費部分の税収が実際より小さいため物価の低下が約2割過大になる）
-  住宅投資(5)の税率リード項、設備・住宅・政府支出の税率は動かさない。どちらも 2022Q1 から恒久的に与える。
+  住宅投資(5)の税率リード項、設備・住宅・政府支出の税率は動かさない。どちらも 2022Q1 から恒久的に与える（--years 2 で2年間の時限措置: 2024Q1 に元の税率に戻し、給付も2年で終える）。
   給付金は各四半期の消費税の事前の減収額と同額の個人所得税減税として与える。
   一律の消費税減税は標準税率 RTCI を下げる（論文シナリオ(6)と同じ与え方）。引下げ幅は、事前の税収減の合計が
-  食料品減税と同じ期間（既定は2022年、--loss-tn は3年）で一致するよう決める。
+  食料品減税と同じ期間（既定は2022年、--loss-tn は実施期間）で一致するよう決める。
 
 入力: data/processed/model_data_v2024.csv, data/raw/vintage2024/2024s12n_jp.xlsx
 出力: output/food_tax_cut_vs_benefit{,_4.4tn}.csv, .png（--loss-tn 指定時は _{値}tn が付く。日本語フォント IPAPGothic が必要）
@@ -47,9 +47,11 @@ IMPL, END, SOLVE_START, WIN0 = "2022Q1", "2024Q4", "2021Q3", "2021Q3"
 S.START, S.END, S.SOLVE_START = IMPL, END, SOLVE_START
 R_FOOD_OLD, R_FOOD_NEW = 0.08, 0.01
 ap = argparse.ArgumentParser()
+ap.add_argument("--years", type=int, default=None, help="時限措置の年数（省略時は恒久）")
 ap.add_argument("--loss-tn", type=float, default=None, help="事前の減収額（兆円/年）。省略時は SNA の食料支出×7/108")
 ARGS = ap.parse_args()
-SUFFIX = "" if ARGS.loss_tn is None else f"_{ARGS.loss_tn:g}tn"
+SUFFIX = ("" if ARGS.loss_tn is None else f"_{ARGS.loss_tn:g}tn") + ("" if ARGS.years is None else f"_{ARGS.years}y")
+TERM = "恒久" if ARGS.years is None else f"{ARGS.years}年間の時限"
 
 # ---- 食料品支出（ESRI 家計の目的別最終消費支出、名目・暦年）
 tab = pd.read_excel(VT.V["dir"] / "2024s12n_jp.xlsx", sheet_name="暦年", header=None)
@@ -74,7 +76,11 @@ d0 = base.copy()
 for k, v in cols.items():
     d0[k] = v
 idx = base.index
-after = pd.Series((idx >= pd.Period(IMPL, "Q")).astype(float), index=idx)
+STOP = None if ARGS.years is None else pd.Period(IMPL, "Q") + 4 * ARGS.years  # 元の税率に戻る四半期
+active = idx >= pd.Period(IMPL, "Q")
+if STOP is not None:
+    active &= idx < STOP
+after = pd.Series(active.astype(float), index=idx)  # 実施中=1
 
 # ---- 消費だけに効く税率 RTCICP を使う差し替え式
 eqs = {e.name: e for e in m.eqs}
@@ -118,7 +124,7 @@ def exante_loss(delta):
     return q["TCIV"] * (1 - (tb_new / tb) ** 0.915210)
 
 
-y1 = slice(IMPL, "2022Q4") if ARGS.loss_tn is None else slice(IMPL, END)  # --loss-tn は3年平均で合わせる
+y1 = slice(IMPL, "2022Q4") if ARGS.loss_tn is None else slice(IMPL, END if STOP is None else str(STOP - 1))  # --loss-tn は実施期間の平均で合わせる
 lo, hi = 0.0, 0.10
 for _ in range(60):
     mid = (lo + hi) / 2
@@ -206,7 +212,7 @@ for ax, (var, title, unit) in zip(axes, [("GDP", "実質GDP", "基準解から�
     ax.axhline(0, color=GRID, lw=1)
     ax.axvspan(-0.5, impl - 0.5, color="#f3f2ee", zorder=0)
     ax.axvline(impl - 0.5, color=INK2, lw=0.8, ls=":")
-    ax.plot(x, d[("food", var)], color=BLUE, lw=2.2, marker="o", ms=3.5, label="食料品の消費税 8%→1%（恒久）")
+    ax.plot(x, d[("food", var)], color=BLUE, lw=2.2, marker="o", ms=3.5, label=f"食料品の消費税 8%→1%（{TERM}）")
     ax.plot(x, d[("ctax", var)], color=AQUA, lw=2.2, ls=(0, (1, 1.2)), marker="o", ms=3.5,
             label=f"同額の一律の消費税減税（全品目 −{x_all * 100:.2f}%pt）")
     ax.plot(x, d[("benefit", var)], color=ORANGE, lw=2.2, ls=(0, (4, 2)), marker="o", ms=3.5,
@@ -226,27 +232,38 @@ for ax, (var, title, unit) in zip(axes, [("GDP", "実質GDP", "基準解から�
         ax.spines[sp].set_visible(False)
 ax = axes[0]
 ymin, ymax = ax.get_ylim()
-ax.text(impl - 0.3, ymin + 0.03 * (ymax - ymin), f"実施（{IMPL}〜、恒久）", color=INK2, fontsize=8.5, va="bottom", ha="left")
+ax.text(impl - 0.3, ymin + 0.03 * (ymax - ymin), f"実施（{IMPL}〜、{TERM}）", color=INK2, fontsize=8.5, va="bottom", ha="left")
 ax.annotate("実施前の買い控え\n（消費関数のリード項）", (1, d[("food", "GDP")].iloc[1]), xytext=(2.6, ymin + 0.2 * (ymax - ymin)),
             textcoords="data", color=INK2, fontsize=8.5, arrowprops=dict(arrowstyle="-", color=INK2, lw=0.8))
 ax.annotate("実施直後の反動増", (impl, d[("food", "GDP")].iloc[impl]), xytext=(impl + 1.2, d[("food", "GDP")].iloc[impl] - 0.02),
             textcoords="data", color=INK2, fontsize=8.5, va="center", arrowprops=dict(arrowstyle="-", color=INK2, lw=0.8))
 ax = axes[1]
-gov = ann[("ctax", "GOVV")].mean()
-ax.annotate(f"一律減税は政府消費・公共投資の価格も下がり、\n実質一定の政府支出の名目額が減る（名目GDP比 {gov:+.2f}）。\n収支悪化が小さいのはこの会計効果",
-            (4, d[("ctax", "BGV")].iloc[4]), xytext=(3.2, d[("ctax", "BGV")].iloc[4] + 0.2), textcoords="data",
+gov = ann[("ctax", "GOVV")].loc[ann[("scale", "loss_bn")] > 0].mean()  # 実施中の年の平均
+ax.annotate(f"一律減税は政府支出の価格も下がり、\n実質一定の政府支出の名目額が減る\n（名目GDP比 {gov:+.2f}）。収支悪化が\n小さいのはこの会計効果",
+            (4, d[("ctax", "BGV")].iloc[4]), xytext=(2.2, d[("ctax", "BGV")].iloc[4] + (0.2 if STOP is None else 0.3)), textcoords="data",
             color=INK2, fontsize=8.5, arrowprops=dict(arrowstyle="-", color=INK2, lw=0.8))
+if STOP is not None:
+    ks = labels.index(str(STOP))
+    for a_ in axes:
+        a_.axvline(ks - 0.5, color=INK2, lw=0.8, ls=":")
+    ax = axes[0]
+    ax.annotate("税率を戻す前の駆け込み", (ks - 1, d[("food", "GDP")].iloc[ks - 1]), xytext=(ks - 5.2, d[("food", "GDP")].iloc[ks - 1] - 0.05),
+                textcoords="data", color=INK2, fontsize=8.5, va="center", arrowprops=dict(arrowstyle="-", color=INK2, lw=0.8))
+    ax.annotate("戻した後の反動減", (ks, d[("food", "GDP")].iloc[ks]), xytext=(ks - 4.6, d[("food", "GDP")].iloc[ks] - 0.12),
+                textcoords="data", color=INK2, fontsize=8.5, va="center", arrowprops=dict(arrowstyle="-", color=INK2, lw=0.8))
+    axes[1].text(ks - 0.3, axes[1].get_ylim()[0] + 0.03 * np.diff(axes[1].get_ylim())[0], f"{STOP}\n元の税率へ",
+                 color=INK2, fontsize=8.5, va="bottom", ha="left")
 h, l = axes[0].get_legend_handles_labels()
 fig.legend(h, l, loc="upper left", bbox_to_anchor=(0.01, 0.905), ncol=3, frameon=False, fontsize=9.5)
 fig.suptitle("食料品の消費税 8%→1% vs 同額の一律消費税減税・給付金" + (f"（減収 {ARGS.loss_tn:g}兆円/年）" if ARGS.loss_tn else "") + "：実質GDPと財政収支の3年間の経路", x=0.01, ha="left",
              fontsize=13.5, color=INK, fontweight="bold", y=0.985)
 fig.text(0.01, 0.935, "内閣府 短期日本経済マクロ計量モデル（2022年版、ESRI Research Note No.72）の Python 再現で計算。"
-         f"2024年版データ（2020年基準SNA）、基準解＝{IMPL}〜{END} の実績、ショックは恒久。", fontsize=9, color=INK2)
+         f"2024年版データ（2020年基準SNA）、基準解＝{IMPL}〜{END} の実績、{TERM}" + ("" if STOP is None else f"（{STOP}に元の税率へ）") + "。", fontsize=9, color=INK2)
 g = lambda k, var: "/".join(f"{v:+.2f}" for v in ann[(k, var)])
 scale = (f"規模: 事前の減収額＝食料・非アルコール飲料の家計消費（ESRI 年次推計、税込み）×7/108。年平均 {'/'.join(f'{v:.2f}' for v in loss_tn)} 兆円"
          f"（名目GDP比 {'/'.join(f'{v:.2f}' for v in loss_pct)}%）。外食・酒類は対象外、テイクアウトは含めない。一律減税・給付金は同額。\n")
 if ARGS.loss_tn is not None:
-    scale = (f"規模: 事前の減収額の3年平均を {ARGS.loss_tn:g}兆円/年とした（報道・試算の値＝食料品ゼロ税率の約5兆円×7/8）。年平均 {'/'.join(f'{v:.2f}' for v in loss_tn)} 兆円、"
+    scale = (f"規模: 事前の減収額の実施期間の平均を {ARGS.loss_tn:g}兆円/年とした（報道・試算の値＝食料品ゼロ税率の約5兆円×7/8）。年平均 {'/'.join(f'{v:.2f}' for v in loss_tn)} 兆円、"
              f"基準解の名目GDP比 {'/'.join(f'{v:.2f}' for v in loss_pct)}%。一律減税・給付金は同額。\n")
 note = (scale +
 
