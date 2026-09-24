@@ -6,19 +6,22 @@
   ESRI 2024年度年次推計「家計の目的別最終消費支出の構成（名目）」の 1.食料・非アルコール飲料 F（税込み）から
   減収額 = F × (0.08 − 0.01) / 1.08。暦年の F / 国内家計最終消費支出 の比を各四半期の CPV に掛けて四半期化する。
   外食（10%）と酒類は対象外。テイクアウト・出前は SNA では外食・宿泊に入るため含めない（その分は過小）。
+  --loss-tn 4.4 のように与えると、事前の減収額の3年平均がその額（兆円/年）になるよう税率の引下げ幅を決める
+  （報道・木内氏コラムの 4.4兆円 = 食料品ゼロ税率の約5兆円 × 7/8。軽減税率の対象全体・2026年ごろの物価水準に相当）。
 
 モデルでの与え方
   モデルの消費税は標準税率 RTCI 1本なので、消費だけに効く実効税率を2本追加して差し替え式で解く。
   - RTCICP: 消費関数(3)の税率リード・ラグ項と消費デフレーター(73)に使う。引下げ幅は、食料品価格に全額転嫁されたときの
-    消費デフレーターの低下（食料品の比率 × 7/108）と、式73の低下が2022年に一致するよう決める。
+    消費デフレーターの低下（事前の減収額 ÷ 名目消費。SNA 基準では食料品の比率 × 7/108）と、式73の低下が2022年に一致するよう決める。
   - RTCIREV: 消費税収(134)の消費部分に使う。引下げ幅は、2022年の事前の税収減（消費以外は基準解のまま）が上の減収額と一致するよう決める。
   （1本で両方を合わせると、式134の消費部分の税収が実際より小さいため物価の低下が約2割過大になる）
   住宅投資(5)の税率リード項、設備・住宅・政府支出の税率は動かさない。どちらも 2022Q1 から恒久的に与える。
   給付金は各四半期の消費税の事前の減収額と同額の個人所得税減税として与える。
 
 入力: data/processed/model_data_v2024.csv, data/raw/vintage2024/2024s12n_jp.xlsx
-出力: output/food_tax_cut_vs_benefit.csv, output/food_tax_cut_vs_benefit.png（日本語フォント IPAPGothic が必要）
+出力: output/food_tax_cut_vs_benefit{,_4.4tn}.csv, .png（--loss-tn 指定時は _{値}tn が付く。日本語フォント IPAPGothic が必要）
 """
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -41,6 +44,10 @@ import vintage as VT
 IMPL, END, SOLVE_START, WIN0 = "2022Q1", "2024Q4", "2021Q3", "2021Q3"
 S.START, S.END, S.SOLVE_START = IMPL, END, SOLVE_START
 R_FOOD_OLD, R_FOOD_NEW = 0.08, 0.01
+ap = argparse.ArgumentParser()
+ap.add_argument("--loss-tn", type=float, default=None, help="事前の減収額（兆円/年）。省略時は SNA の食料支出×7/108")
+ARGS = ap.parse_args()
+SUFFIX = "" if ARGS.loss_tn is None else f"_{ARGS.loss_tn:g}tn"
 
 # ---- 食料品支出（ESRI 家計の目的別最終消費支出、名目・暦年）
 tab = pd.read_excel(VT.V["dir"] / "2024s12n_jp.xlsx", sheet_name="暦年", header=None)
@@ -96,6 +103,8 @@ over["TCIV"] = M.Eq(e134.no, "TCIV", e134.kind, lambda v: (
 q = base.loc[IMPL:END]
 target = pd.Series([food_share[p.year] * q.at[p, "CPV"] * (R_FOOD_OLD - R_FOOD_NEW) / (1 + R_FOOD_OLD) for p in q.index],
                    index=q.index)
+if ARGS.loss_tn is not None:
+    target = pd.Series(ARGS.loss_tn * 1000.0, index=q.index)  # 税率一定なので各期の減収は名目消費とともに変わる
 
 
 def exante_loss(delta):
@@ -107,7 +116,7 @@ def exante_loss(delta):
     return q["TCIV"] * (1 - (tb_new / tb) ** 0.915210)
 
 
-y1 = slice(IMPL, "2022Q4")
+y1 = slice(IMPL, "2022Q4") if ARGS.loss_tn is None else slice(IMPL, END)  # --loss-tn は3年平均で合わせる
 lo, hi = 0.0, 0.10
 for _ in range(60):
     mid = (lo + hi) / 2
@@ -115,8 +124,8 @@ for _ in range(60):
 delta = (lo + hi) / 2
 loss = exante_loss(delta)
 # 物価: 食料品価格に全額転嫁 → 消費デフレーター低下率 = 食料品比率 × 7/108。式73 で同じ低下になる RTCICP の引下げ幅
-q22 = q.loc[y1]
-dp = (np.array([food_share[p.year] for p in q22.index]) * (R_FOOD_OLD - R_FOOD_NEW) / (1 + R_FOOD_OLD)).mean()
+q22 = q.loc[y1]  # 物価の合わせ込みも同じ期間
+dp = (target.loc[y1] / q22["CPV"]).mean()
 r0, p0 = q22["RTCI"].mean(), q22["PRTCP"].mean()
 delta_p = dp * (1 + r0 * p0) / p0
 amount = loss.reindex(idx).fillna(0.0) * after
@@ -145,7 +154,7 @@ out[("scale", "target_bn")] = target.reindex(base.loc[win].index)
 out[("scale", "loss_pct_gdp")] = amount.loc[win] / base.loc[win, "GDPV"] * 100
 df = pd.DataFrame(out)
 df.index = df.index.astype(str)
-df.to_csv(ROOT / "output/food_tax_cut_vs_benefit.csv", float_format="%.8f")
+df.to_csv(ROOT / f"output/food_tax_cut_vs_benefit{SUFFIX}.csv", float_format="%.8f")
 
 ann = df.loc[IMPL:END].copy()
 ann.index = pd.PeriodIndex(ann.index, freq="Q").year
@@ -197,18 +206,23 @@ ax.annotate("実施直後の反動増", (impl, d[("food", "GDP")].iloc[impl]), x
             textcoords="data", color=INK2, fontsize=8.5, va="center", arrowprops=dict(arrowstyle="-", color=INK2, lw=0.8))
 h, l = axes[0].get_legend_handles_labels()
 fig.legend(h, l, loc="upper left", bbox_to_anchor=(0.01, 0.905), ncol=2, frameon=False, fontsize=9.5)
-fig.suptitle("食料品の消費税 8%→1% vs 同額の給付金：実質GDPと財政収支の3年間の経路", x=0.01, ha="left",
+fig.suptitle("食料品の消費税 8%→1% vs 同額の給付金" + (f"（減収 {ARGS.loss_tn:g}兆円/年）" if ARGS.loss_tn else "") + "：実質GDPと財政収支の3年間の経路", x=0.01, ha="left",
              fontsize=13.5, color=INK, fontweight="bold", y=0.985)
 fig.text(0.01, 0.935, "内閣府 短期日本経済マクロ計量モデル（2022年版、ESRI Research Note No.72）の Python 再現で計算。"
          f"2024年版データ（2020年基準SNA）、基準解＝{IMPL}〜{END} の実績、ショックは恒久。", fontsize=9, color=INK2)
 g = lambda k, var: "/".join(f"{v:+.2f}" for v in ann[(k, var)])
-note = (f"規模: 事前の減収額＝食料・非アルコール飲料の家計消費（ESRI 年次推計、税込み）×7/108。年平均 {'/'.join(f'{v:.2f}' for v in loss_tn)} 兆円"
-        f"（名目GDP比 {'/'.join(f'{v:.2f}' for v in loss_pct)}%）。外食・酒類は対象外、テイクアウトは含めない。給付金は各期の消費税の事前減収と同額。\n"
+scale = (f"規模: 事前の減収額＝食料・非アルコール飲料の家計消費（ESRI 年次推計、税込み）×7/108。年平均 {'/'.join(f'{v:.2f}' for v in loss_tn)} 兆円"
+         f"（名目GDP比 {'/'.join(f'{v:.2f}' for v in loss_pct)}%）。外食・酒類は対象外、テイクアウトは含めない。給付金は各期の消費税の事前減収と同額。\n")
+if ARGS.loss_tn is not None:
+    scale = (f"規模: 事前の減収額の3年平均を {ARGS.loss_tn:g}兆円/年とした（報道・試算の値＝食料品ゼロ税率の約5兆円×7/8）。年平均 {'/'.join(f'{v:.2f}' for v in loss_tn)} 兆円、"
+             f"基準解の名目GDP比 {'/'.join(f'{v:.2f}' for v in loss_pct)}%。給付金は同額。\n")
+note = (scale +
+
         f"モデルでは消費だけに効く実効税率を、物価（食料品に全額転嫁、消費デフレーター −{dp * 100:.2f}%）で {delta_p * 100:.2f}%pt、税収で {delta * 100:.2f}%pt 下げる"
         "（消費関数・消費デフレーター・消費税収の式のみ差し替え）。住宅・設備・政府支出の税率は不変。\n"
         f"年平均（1/2/3年目）の実質GDP: 食料品減税 {g('food', 'GDP')}、給付金 {g('benefit', 'GDP')}。"
         f"財政収支/GDP: 食料品減税 {g('food', 'BGV')}、給付金 {g('benefit', 'BGV')}。誤差修正項は消費・個人企業所得・消費デフレーターの3本のみ有効。")
 fig.text(0.01, 0.012, note, fontsize=8, color=INK2, linespacing=1.55, va="bottom")
 fig.tight_layout(rect=(0, 0.14, 1, 0.86), w_pad=2.5)
-fig.savefig(ROOT / "output/food_tax_cut_vs_benefit.png", dpi=160, facecolor="white")
-print(ROOT / "output/food_tax_cut_vs_benefit.png")
+fig.savefig(ROOT / f"output/food_tax_cut_vs_benefit{SUFFIX}.png", dpi=160, facecolor="white")
+print(ROOT / f"output/food_tax_cut_vs_benefit{SUFFIX}.png")
