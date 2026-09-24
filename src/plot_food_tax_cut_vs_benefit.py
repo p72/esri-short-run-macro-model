@@ -1,4 +1,4 @@
-"""食料品の消費税率 8%→1% vs 同額の給付金: 実質GDPと財政収支/GDP の3年間の四半期経路を計算して描く.
+"""食料品の消費税率 8%→1% vs 同額の一律の消費税減税 vs 同額の給付金: 実質GDPと財政収支/GDP の3年間の四半期経路を計算して描く.
 
 版は ESRI_VINTAGE=2024 に固定する（標準10%・軽減8%の複数税率が基準解に入っている 2022Q1〜2024Q4 を使う）。
 
@@ -17,6 +17,8 @@
   （1本で両方を合わせると、式134の消費部分の税収が実際より小さいため物価の低下が約2割過大になる）
   住宅投資(5)の税率リード項、設備・住宅・政府支出の税率は動かさない。どちらも 2022Q1 から恒久的に与える。
   給付金は各四半期の消費税の事前の減収額と同額の個人所得税減税として与える。
+  一律の消費税減税は標準税率 RTCI を下げる（論文シナリオ(6)と同じ与え方）。引下げ幅は、事前の税収減の合計が
+  食料品減税と同じ期間（既定は2022年、--loss-tn は3年）で一致するよう決める。
 
 入力: data/processed/model_data_v2024.csv, data/raw/vintage2024/2024s12n_jp.xlsx
 出力: output/food_tax_cut_vs_benefit{,_4.4tn}.csv, .png（--loss-tn 指定時は _{値}tn が付く。日本語フォント IPAPGothic が必要）
@@ -130,6 +132,25 @@ r0, p0 = q22["RTCI"].mean(), q22["PRTCP"].mean()
 delta_p = dp * (1 + r0 * p0) / p0
 amount = loss.reindex(idx).fillna(0.0) * after
 
+# ---- 同額の一律の消費税減税: 標準税率 RTCI を x 下げる（論文シナリオ(6)と同じ与え方。消費・設備・住宅・政府支出すべてに効く）
+COMP = [("CPV", "PRTCP"), ("IFPV", "PRTIF"), ("IHPV", "PRTIH"), ("CGV", "PRTCG"), ("IGV", "PRTIG")]
+
+
+def exante_loss_all(x):
+    """RTCI を x 下げたときの式134の事前の減収額（課税ベースの各需要項目は基準解のまま）."""
+    r = q["RTCI"]
+    tb = (q["TCIV"] / np.exp(af.loc[q.index, "TCIV"] + 0.191987 * q["D972C"])) ** (1 / 0.915210)
+    tb_new = tb + sum(((r - x) / (1 + (r - x) * q[pr]) - r / (1 + r * q[pr])) * q[val] for val, pr in COMP)
+    return q["TCIV"] * (1 - (tb_new / tb) ** 0.915210)
+
+
+lo, hi = 0.0, 0.10
+for _ in range(60):
+    mid = (lo + hi) / 2
+    lo, hi = (mid, hi) if exante_loss_all(mid).loc[y1].sum() < loss.loc[y1].sum() else (lo, mid)
+x_all = (lo + hi) / 2
+loss_all = exante_loss_all(x_all)
+
 
 def run(data_over=None, shocks=None):
     d = d0.copy()
@@ -141,6 +162,7 @@ def run(data_over=None, shocks=None):
 chk = run()
 assert np.allclose(chk.loc[WIN0:END, "GDP"], base.loc[WIN0:END, "GDP"], rtol=1e-8), "差し替え式で基準解が再現されない"
 runs = {"food": run(data_over={"RTCICP": d0["RTCICP"] - delta_p * after, "RTCIREV": d0["RTCIREV"] - delta * after}),
+        "ctax": run(data_over={c: d0[c] - x_all * after for c in ("RTCI", "RTCICP", "RTCIREV")}),
         "benefit": run(shocks={"TYPV": -amount})}
 win = slice(WIN0, END)
 out = {}
@@ -149,7 +171,10 @@ for k, sh in runs.items():
     out[(k, "BGV")] = sh.loc[win, "BGVATGDPV"] - base.loc[win, "BGVATGDPV"]
     out[(k, "CP")] = (sh.loc[win, "CP"] / base.loc[win, "CP"] - 1) * 100
     out[(k, "PCP")] = (sh.loc[win, "PCP"] / base.loc[win, "PCP"] - 1) * 100
+    # 政府消費＋公的固定資本形成の名目額の変化（名目GDP比 %pt、減ると財政収支は改善）
+    out[(k, "GOVV")] = ((sh.loc[win, "CGV"] + sh.loc[win, "IGV"]) - (base.loc[win, "CGV"] + base.loc[win, "IGV"])) / base.loc[win, "GDPV"] * 100
 out[("scale", "loss_bn")] = amount.loc[win]
+out[("scale", "loss_all_bn")] = (loss_all.reindex(idx).fillna(0.0) * after).loc[win]
 out[("scale", "target_bn")] = target.reindex(base.loc[win].index)
 out[("scale", "loss_pct_gdp")] = amount.loc[win] / base.loc[win, "GDPV"] * 100
 df = pd.DataFrame(out)
@@ -161,11 +186,12 @@ ann.index = pd.PeriodIndex(ann.index, freq="Q").year
 ann = ann.groupby(level=0).mean()
 print(f"食料・非アルコール飲料（暦年、兆円）: " + ", ".join(f"{y} {food[y] / 1000:.2f}" for y in (2022, 2023, 2024)))
 print(f"実効税率の引下げ幅: 物価用 RTCICP {delta_p * 100:.3f}%pt（消費デフレーター −{dp * 100:.3f}%）、税収用 RTCIREV {delta * 100:.3f}%pt")
+print(f"一律の消費税減税（同額）: RTCI {x_all * 100:.3f}%pt 引下げ")
 print("年平均:\n", ann.round(3).to_string())
 
 # ---- 作図
 d = df
-BLUE, ORANGE, INK, INK2, GRID = "#2a78d6", "#eb6834", "#0b0b0b", "#52514e", "#e6e5e1"
+BLUE, ORANGE, AQUA, INK, INK2, GRID = "#2a78d6", "#eb6834", "#1baf7a", "#0b0b0b", "#52514e", "#e6e5e1"
 plt.rcParams.update({"font.family": "IPAPGothic", "font.size": 9.5, "axes.edgecolor": GRID, "axes.labelcolor": INK2,
                      "xtick.color": INK2, "ytick.color": INK2, "axes.unicode_minus": False})
 fig, axes = plt.subplots(1, 2, figsize=(12.5, 6.2))
@@ -181,12 +207,13 @@ for ax, (var, title, unit) in zip(axes, [("GDP", "実質GDP", "基準解から�
     ax.axvspan(-0.5, impl - 0.5, color="#f3f2ee", zorder=0)
     ax.axvline(impl - 0.5, color=INK2, lw=0.8, ls=":")
     ax.plot(x, d[("food", var)], color=BLUE, lw=2.2, marker="o", ms=3.5, label="食料品の消費税 8%→1%（恒久）")
+    ax.plot(x, d[("ctax", var)], color=AQUA, lw=2.2, ls=(0, (1, 1.2)), marker="o", ms=3.5,
+            label=f"同額の一律の消費税減税（全品目 −{x_all * 100:.2f}%pt）")
     ax.plot(x, d[("benefit", var)], color=ORANGE, lw=2.2, ls=(0, (4, 2)), marker="o", ms=3.5,
             label="同額の給付金（所得減税として）")
-    ya, yb = d[("food", var)].iloc[-1], d[("benefit", var)].iloc[-1]
-    off = 6 if ya >= yb else -6
-    ax.annotate(f"{ya:+.2f}", (x[-1], ya), xytext=(6, off), textcoords="offset points", color=BLUE, fontsize=9, va="center")
-    ax.annotate(f"{yb:+.2f}", (x[-1], yb), xytext=(6, -off), textcoords="offset points", color=ORANGE, fontsize=9, va="center")
+    ends = sorted([(d[(k, var)].iloc[-1], c) for k, c in (("food", BLUE), ("ctax", AQUA), ("benefit", ORANGE))])
+    for i, (yv, c) in enumerate(ends):
+        ax.annotate(f"{yv:+.2f}", (x[-1], yv), xytext=(6, (i - 1) * 9), textcoords="offset points", color=c, fontsize=9, va="center")
     ax.set_title(f"{title}（{unit}）", loc="left", fontsize=11, color=INK, pad=8)
     ticks = [i for i, l in enumerate(labels) if l.endswith("Q1")] + [len(labels) - 1]
     ax.set_xticks(ticks)
@@ -204,24 +231,29 @@ ax.annotate("実施前の買い控え\n（消費関数のリード項）", (1, d
             textcoords="data", color=INK2, fontsize=8.5, arrowprops=dict(arrowstyle="-", color=INK2, lw=0.8))
 ax.annotate("実施直後の反動増", (impl, d[("food", "GDP")].iloc[impl]), xytext=(impl + 1.2, d[("food", "GDP")].iloc[impl] - 0.02),
             textcoords="data", color=INK2, fontsize=8.5, va="center", arrowprops=dict(arrowstyle="-", color=INK2, lw=0.8))
+ax = axes[1]
+gov = ann[("ctax", "GOVV")].mean()
+ax.annotate(f"一律減税は政府消費・公共投資の価格も下がり、\n実質一定の政府支出の名目額が減る（名目GDP比 {gov:+.2f}）。\n収支悪化が小さいのはこの会計効果",
+            (4, d[("ctax", "BGV")].iloc[4]), xytext=(3.2, d[("ctax", "BGV")].iloc[4] + 0.2), textcoords="data",
+            color=INK2, fontsize=8.5, arrowprops=dict(arrowstyle="-", color=INK2, lw=0.8))
 h, l = axes[0].get_legend_handles_labels()
-fig.legend(h, l, loc="upper left", bbox_to_anchor=(0.01, 0.905), ncol=2, frameon=False, fontsize=9.5)
-fig.suptitle("食料品の消費税 8%→1% vs 同額の給付金" + (f"（減収 {ARGS.loss_tn:g}兆円/年）" if ARGS.loss_tn else "") + "：実質GDPと財政収支の3年間の経路", x=0.01, ha="left",
+fig.legend(h, l, loc="upper left", bbox_to_anchor=(0.01, 0.905), ncol=3, frameon=False, fontsize=9.5)
+fig.suptitle("食料品の消費税 8%→1% vs 同額の一律消費税減税・給付金" + (f"（減収 {ARGS.loss_tn:g}兆円/年）" if ARGS.loss_tn else "") + "：実質GDPと財政収支の3年間の経路", x=0.01, ha="left",
              fontsize=13.5, color=INK, fontweight="bold", y=0.985)
 fig.text(0.01, 0.935, "内閣府 短期日本経済マクロ計量モデル（2022年版、ESRI Research Note No.72）の Python 再現で計算。"
          f"2024年版データ（2020年基準SNA）、基準解＝{IMPL}〜{END} の実績、ショックは恒久。", fontsize=9, color=INK2)
 g = lambda k, var: "/".join(f"{v:+.2f}" for v in ann[(k, var)])
 scale = (f"規模: 事前の減収額＝食料・非アルコール飲料の家計消費（ESRI 年次推計、税込み）×7/108。年平均 {'/'.join(f'{v:.2f}' for v in loss_tn)} 兆円"
-         f"（名目GDP比 {'/'.join(f'{v:.2f}' for v in loss_pct)}%）。外食・酒類は対象外、テイクアウトは含めない。給付金は各期の消費税の事前減収と同額。\n")
+         f"（名目GDP比 {'/'.join(f'{v:.2f}' for v in loss_pct)}%）。外食・酒類は対象外、テイクアウトは含めない。一律減税・給付金は同額。\n")
 if ARGS.loss_tn is not None:
     scale = (f"規模: 事前の減収額の3年平均を {ARGS.loss_tn:g}兆円/年とした（報道・試算の値＝食料品ゼロ税率の約5兆円×7/8）。年平均 {'/'.join(f'{v:.2f}' for v in loss_tn)} 兆円、"
-             f"基準解の名目GDP比 {'/'.join(f'{v:.2f}' for v in loss_pct)}%。給付金は同額。\n")
+             f"基準解の名目GDP比 {'/'.join(f'{v:.2f}' for v in loss_pct)}%。一律減税・給付金は同額。\n")
 note = (scale +
 
-        f"モデルでは消費だけに効く実効税率を、物価（食料品に全額転嫁、消費デフレーター −{dp * 100:.2f}%）で {delta_p * 100:.2f}%pt、税収で {delta * 100:.2f}%pt 下げる"
-        "（消費関数・消費デフレーター・消費税収の式のみ差し替え）。住宅・設備・政府支出の税率は不変。\n"
-        f"年平均（1/2/3年目）の実質GDP: 食料品減税 {g('food', 'GDP')}、給付金 {g('benefit', 'GDP')}。"
-        f"財政収支/GDP: 食料品減税 {g('food', 'BGV')}、給付金 {g('benefit', 'BGV')}。誤差修正項は消費・個人企業所得・消費デフレーターの3本のみ有効。")
+        f"食料品: 消費だけに効く実効税率を物価（全額転嫁、消費デフレーター −{dp * 100:.2f}%）で {delta_p * 100:.2f}%pt、税収で {delta * 100:.2f}%pt 下げる（消費関数・消費デフレーター・消費税収の式を差し替え）。"
+        f"一律: 標準税率を {x_all * 100:.2f}%pt 下げる（論文シナリオ(6)の与え方）。\n"
+        f"年平均（1/2/3年目）の実質GDP: 食料品 {g('food', 'GDP')}、一律 {g('ctax', 'GDP')}、給付金 {g('benefit', 'GDP')}。"
+        f"財政収支/GDP: 食料品 {g('food', 'BGV')}、一律 {g('ctax', 'BGV')}、給付金 {g('benefit', 'BGV')}。")
 fig.text(0.01, 0.012, note, fontsize=8, color=INK2, linespacing=1.55, va="bottom")
 fig.tight_layout(rect=(0, 0.14, 1, 0.86), w_pad=2.5)
 fig.savefig(ROOT / f"output/food_tax_cut_vs_benefit{SUFFIX}.png", dpi=160, facecolor="white")
