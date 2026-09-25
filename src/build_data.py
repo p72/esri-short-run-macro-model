@@ -418,7 +418,7 @@ def build() -> pd.DataFrame:
     # 負債そのものは 資産合計 − 金融資産・負債差額 で求める（2018年でGDP比約231%）
     D["SBGV"] = ((boj["GOV_FA"] - boj["GOV_NFA"]) / 10).reindex(IDX)
     note("SBGV", "資金循環 一般政府 負債（資産合計−金融資産・負債差額, ストック）÷10。論文乗数表の比率変化から総債務ベースと判断")
-    D["OTNGV"] = 0.0
+    D["OTNGV"] = 0.0  # 定義式を埋めた後、SNA の財政バランスに合うよう逆算する
 
     # ---- 海外
     D["BCV"] = D["BFV"] + D["RTRIV"] - D["PTRIV"]
@@ -487,6 +487,20 @@ def build() -> pd.DataFrame:
 
     D["RSBGV"] = np.nan  # 定義式を埋めた後に計算
     D = fill_identities(D)
+    # ---- 財政バランス: 論文では BGV は SNA の実績（CAO,SNA）、残余項目 OTNGV は作成者の計算（Author）。
+    # 式126 の各項目だけで計算した値と、SNA 一般政府の純貸出/純借入（年度）との差を OTNGV とし、年度内一定で四半期に割り付ける。
+    # 年度値のない端の期間は、最後の年度の名目GDP比で延長する。
+    fy_of = [p.year if p.quarter >= 2 else p.year - 1 for p in IDX]
+    bgv_fy = D["BGV"].groupby(fy_of).mean()
+    resid = (ann["GOVNL_FY"] - bgv_fy).dropna()
+    otngv = fy_to_q(resid)
+    ratio = (otngv / D["GDPV"]).ffill().bfill()
+    D["OTNGV"] = otngv.fillna(ratio * D["GDPV"])
+    D["BGV"] = D["BGV"] + D["OTNGV"]
+    D["BGVATGDPV"] = D["BGV"] / D["GDPV"] * 100
+    note("OTNGV", "SNA 一般政府の純貸出/純借入（年度、GFS）− 式126 の各項目による計算値の年度平均。年度内一定で四半期に割付、"
+                  "年度値のない端は最後の年度の名目GDP比で延長（資本移転・その他の経常移転など式126 に無い項目）")
+    note("BGV", "式126（OTNGV を含む）。年度平均が SNA 一般政府の純貸出/純借入に一致")
     D["RSBGV"] = D["SBGV"] - D["SBGV"].shift(1) + D["BGV"] / 4
     return D
 
