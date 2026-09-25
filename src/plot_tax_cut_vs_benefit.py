@@ -72,8 +72,10 @@ ax.annotate("2019Q4〜: 基準解の税率が10%に上がり\n同じ2.2%pt の�
 h,l=axes[0].get_legend_handles_labels(); fig.legend(h,l,loc="upper left",bbox_to_anchor=(0.01,0.905),ncol=2,frameon=False,fontsize=9.5)
 fig.suptitle("名目GDP1%規模の消費税減税 vs 給付金：実質GDPと財政収支の3年間の経路",x=0.01,ha="left",fontsize=13.5,color=INK,fontweight="bold",y=0.985)
 fig.text(0.01,0.935,"内閣府 短期日本経済マクロ計量モデル（2022年版、ESRI Research Note No.72）の Python 再現で計算。基準解＝2018Q1〜2020Q4 の実績、ショックは恒久。",fontsize=9,color=INK2)
+_dd = d.loc["2018Q1":"2020Q4"].copy(); _dd.index = [i[:4] for i in _dd.index]
+_ann = lambda k, v: "/".join(f"{x:+.2f}".replace("-", "−") for x in _dd[(k, v)].groupby(level=0).mean())
 note=("注: 消費税減税は税率 10%→8% 相当ではなく、このモデルの税収ベース（2018年、税率8%）で事前の税収減が名目GDPの1%になる 2.21%pt の引下げ。2.0%pt なら実質GDP +0.44/+0.40/+0.36（年平均）。\n"
       "給付金は個人所得税の減税として与える（モデルでは可処分所得への効き方が同じ）。消費税のデフレーター転嫁率は 0.52（残りは企業の取り分）。誤差修正項は消費・個人企業所得・消費デフレーターの3本を有効化、他は標準解で固定。\n"
-      "年平均の実質GDP乗数: 消費税減税 +0.48/+0.44/+0.40、給付金 +0.21/+0.31/+0.30。財政収支/GDP: 消費税減税 −0.76/−0.61/−0.57、給付金 −0.95/−0.87/−0.87。")
+      f"年平均の実質GDP乗数: 消費税減税 {_ann('ctax', 'GDP')}、給付金 {_ann('benefit', 'GDP')}。財政収支/GDP: 消費税減税 {_ann('ctax', 'BGV')}、給付金 {_ann('benefit', 'BGV')}。")
 fig.text(0.01,0.012,note,fontsize=8,color=INK2,linespacing=1.55,va="bottom")
 fig.tight_layout(rect=(0,0.14,1,0.86),w_pad=2.5); fig.savefig(ROOT / "output/tax_cut_vs_benefit.png",dpi=160,facecolor="white"); print(ROOT / "output/tax_cut_vs_benefit.png")

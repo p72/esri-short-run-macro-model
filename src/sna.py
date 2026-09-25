@@ -274,10 +274,13 @@ def annual_block() -> pd.DataFrame:
     # 年度見出しは各5列ブロック（中央・地方・社保・部門間調整・一般政府）の2列目に置かれている
     # GFS の「純取得」は固定資本減耗控除後なので、総固定資本形成 = 311 固定資産 + 23 固定資本減耗
     gf, cca = _find(rows, "311 固定資産"), _find(rows, "23 固定資本減耗")
+    # 一般政府の純貸出(+)／純借入(-)（年度）。論文の財政バランス BGV（出所 CAO,SNA）に当たる
+    nl = _find(rows, "純貸出")
     for c, v in enumerate(rows[2]):
         if v and "（" in str(v):
             fy = int(str(v).split("（")[1][:4])
             rec.setdefault(fy, {})["GOVGFCF_FY"] = float(gf[c + 3]) + float(cca[c + 3])
+            rec[fy]["GOVNL_FY"] = float(nl[c + 3])
     return pd.DataFrame.from_dict(rec, orient="index").sort_index()
 
 
