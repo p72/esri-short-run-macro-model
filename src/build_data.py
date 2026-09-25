@@ -354,8 +354,26 @@ def build() -> pd.DataFrame:
     share = (pop65 / D["POP"]).dropna()
     D["POP65"] = pop65.where(pop65.notna(), D["POP"] * share.iloc[0])
     note("POP65", "労働力調査 年齢階級別（2018Q1〜）。それ以前は2018Q1の比率で延長（LF式は当期値のみ使用）")
-    D["HH"] = D["POP"]
-    note("HH", "代理: 15歳以上人口（住宅投資式の対数項は誤差項に吸収され乗数に影響しない）")
+    hh_file = RAW / "estat_hh_0000010101.csv"
+    if hh_file.exists():
+        # 論文の HH（世帯数、1万、出所 SBSC,BRR）: 住民基本台帳世帯数（日本人）。年度の値を年度末（翌年Q1）に置き、対数線形で四半期補間
+        h = pd.read_csv(hh_file, dtype={"time_code": str})
+        h = h[h["time_name"].str.endswith("年度")]
+        pts = pd.Series(h["value"].astype(float).values / 1e4,
+                        index=[pd.Period(f"{int(t[:4]) + 1}Q1", "Q") for t in h["time_name"]])
+        full = pd.period_range(min(pts.index.min(), IDX[0]), max(pts.index.max(), IDX[-1]), freq="Q")
+        lg = np.log(pts.reindex(full)).interpolate(limit_area="inside")
+        # 最後の年度末より先は直近1年の対数変化で延長
+        last = pts.index.max()
+        slope = (np.log(pts[last]) - np.log(pts[last - 4])) / 4 if (last - 4) in pts.index else 0.0
+        for p_ in full[full > last]:
+            lg[p_] = np.log(pts[last]) + slope * (p_ - last).n
+        D["HH"] = np.exp(lg).reindex(IDX)
+        note("HH", "住民基本台帳世帯数（日本人、e-Stat 社会・人口統計体系 A7103、年度）÷1万。年度値を年度末に置いて対数線形補間、"
+                   "直近年度末より先は直近1年の変化率で延長（式5 には対数で入り、水準・傾きは誤差項に吸収され乗数に影響しない）")
+    else:
+        D["HH"] = D["POP"]
+        note("HH", "代理: 15歳以上人口（住宅投資式の対数項は誤差項に吸収され乗数に影響しない）")
     D["CUX"] = load_cux().reindex(IDX)
     note("CUX", "製造工業稼働率指数 季調 2015=100 四半期平均（e-Stat）")
     D["LHX"] = rebase(seasonal_adjust(load_hours()), level=100).reindex(IDX)

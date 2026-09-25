@@ -48,7 +48,7 @@ python src/build_data.py       # モデル用四半期データ → data/process
 ```bash
 # 2024年版でデータを作り直し、2022Q1〜2024Q4 を基準解にして11シナリオを解く
 ESRI_VINTAGE=2024 python src/fetch_sna.py     # ESRI から QE と年次推計の表を data/raw/vintage2024/ に取得
-ESTAT_APP_ID=<your id> python src/fetch_estat.py  # e-Stat: 稼働率（2020年基準）、貿易統計 2021〜25年
+ESTAT_APP_ID=<your id> python src/fetch_estat.py  # e-Stat: 稼働率（2020年基準）、貿易統計 2021〜25年、住民基本台帳世帯数
 python src/fetch_external.py --fred            # FRED: 米国製造業PPI（OECD の系列が2022年で終了したため）
 ESRI_VINTAGE=2024 python src/sna.py && ESRI_VINTAGE=2024 python src/build_data.py
 ESRI_VINTAGE=2024 python src/ledger.py
@@ -75,11 +75,13 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 | `src/plot_tax_cut_vs_benefit.py` | 名目GDP1%規模の消費税減税 vs 給付金の実質GDP・財政収支/GDP の3年間経路（`output/tax_cut_vs_benefit.{csv,png}`） |
 | `src/plot_food_tax_cut_vs_benefit.py` | 食料品の消費税 8%→1% vs 同額の一律消費税減税・給付金（2024年版、2022〜24年基準）。減収額は ESRI 家計の目的別消費の食料・非アルコール飲料×7/108、消費だけに効く税率で消費関数・消費デフレーター・消費税収の式を差し替え（`output/food_tax_cut_vs_benefit.{csv,png}`） |
 | `src/sna.py` | SNA 四半期速報・年次推計の読み込み、季節調整（移動平均比率法） |
-| `src/fetch_*.py` | 論文・日銀・ESRI景気動向指数・OECD・FRED からの取得。`fetch_sna.py` は版の SNA ファイル、`fetch_estat.py` は e-Stat API（稼働率・貿易統計） |
+| `src/fetch_*.py` | 論文・日銀・ESRI景気動向指数・OECD・FRED からの取得。`fetch_sna.py` は版の SNA ファイル、`fetch_estat.py` は e-Stat API（稼働率・貿易統計・世帯数） |
 | `src/experiment_ecm*.py` | 誤差修正項の扱いを特定した検証実験（結果は `output/experiment_ecm*.csv`） |
 | `src/experiment_ucc.py` | 法人税減税シナリオの資本コスト `UCC` の寄与分解と感応度（Issue #1、結果は `output/experiment_ucc*.csv`） |
 | `src/check_transcription.py` | 論文の各式の係数・定数と `model.py` の機械照合 |
 | `src/experiment_fidelity.py` | 印刷どおり・別解釈・誤植修正前の式で解いた一致度（`docs/fidelity.md`、結果は `output/experiment_fidelity.csv`） |
+| `src/experiment_proxy_levels.py` | 代用系列（`HH`・`PLAND`）の水準・傾きを歪めて解き直し、乗数が変わらないことを確認（Issue #3、結果は `output/experiment_proxy_levels.csv`） |
+| `src/experiment_itr_form.py` | 式129 の左辺が水準か DLOG かを、印刷された係数と決定係数から判定（Issue #2、結果は `output/experiment_itr_form.csv`） |
 | `src/experiment_ecm_greedy.py` | 誤差修正項の固定の探索（1本ずつ固定、貪欲法、入れ子形の追加3本） |
 | `docs/fidelity.md` | 論文への忠実性の監査（照合方法、誤植の根拠、逸脱2件の根拠と影響） |
 
@@ -92,11 +94,11 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 
 ## 論文への忠実性
 
-152本の式の係数・定数は `src/check_transcription.py` で論文と機械照合し、すべて一致する。印刷と違う扱いをしているのは、誤植の修正7件（`model.py` の `[fix]`）を除くと次の2点だけで、どちらも印刷どおりに切り替えられる。
+152本の式の係数・定数は `src/check_transcription.py` で論文と機械照合し、すべて一致する。印刷と違う扱いをしているのは、誤植の修正8件（`model.py` の `[fix]` と式129）を除くと誤差修正項の固定だけで、どちらも印刷どおりに切り替えられる。式129 は印刷の左辺 `LOG` を `DLOG` の誤植と判定した（印刷された係数 −0.959 と決定係数 0.479 の組は DLOG 型の回帰でしか出ない。`src/experiment_itr_form.py`、`docs/fidelity.md` §5.1）。
 
-| 逸脱 | 既定 | 印刷どおりにする | 印刷どおりの一致率 |
+| 項目 | 既定 | 印刷どおりにする | 印刷どおりの一致率 |
 |---|---|---|---|
-| 式129 所得実効税率の型 | DLOG型 | `python src/simulate.py --itr level` | 95.3%（実質GDPの誤差はむしろ小さい。個人所得税の経路が合わない） |
+| 式129 所得実効税率の型（誤植と判定） | DLOG型 | `python src/simulate.py --itr level` | 95.3%（実質GDPの誤差はむしろ小さい。個人所得税の経路が合わない） |
 | 誤差修正項の固定 | 11本を標準解の値で固定 | `python src/simulate.py --ecm live` | 85.2%（住宅投資 `IHP` の誤差が +0.5） |
 | 両方 | | `--itr level --ecm live` | 84.1% |
 
@@ -110,7 +112,7 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 | 解く期間 | 2017Q3 から | 消費税シナリオの2018Q1の成長率乗数（−2.82）は2017Q4のGDPが+0.34%高いことを含意し、リード項の駆け込みを解いて初めて一致（輸入の2018Q1反応 +0.03 も再現） |
 | データの版 | 2021年10-12月期2次QE + 2020年度年次推計 | 公共投資乗数から逆算した IG/GDP 比と 0.001%pt で一致 |
 | TIME の定義 | 1980Q1 = 1 | 式110（在庫比率）と式111（貨幣需要）の定数から逆算 |
-| 式129 所得実効税率 | DLOG型として実装（`--itr level` で印刷どおりに切替可） | 印刷どおりだと乗数表(1)の個人所得税の経路が論文の半分強（2018年 0.89 vs 論文 1.20）。ただし実質GDPの誤差は印刷どおりのほうが僅かに小さく（MAE 0.0087 vs 0.0098）、根拠は個人所得税の経路のみ（Issue #2） |
+| 式129 所得実効税率 | DLOG型として実装（`--itr level` で印刷どおりに切替可） | 印刷の係数 −0.959 と決定係数 0.479 の組は、左辺を DLOG にした回帰の値と一致し、水準式（決定係数 ≈ 0.9 になる）とは一致しない。前の版（2018年版）は水準式で係数 +0.50・決定係数 0.29 と整合する。印刷どおりだと乗数表(1)の個人所得税の経路が論文の半分強（2018年 0.89 vs 論文 1.20）（Issue #2、`src/experiment_itr_form.py`） |
 | 誤植 | `LA_LE`→`LE`, `--0.000488`→`-0.000488`, `FXS2011`→`FXS2015`, `WPHX`→`WPH` ほか | `model.py` に `[fix]` で明記 |
 | 消費税の転嫁率 `PRT*` | 消費0.52, 住宅0.80, 設備0.18, 公共投資0.45, 政府消費0.48, 企業物価0.86, 輸出入0 | 乗数表(6)の2018Q1デフレータ反応 |
 | 累積財政赤字 `SBGV` | 一般政府の負債（資金循環：資産合計−金融資産・負債差額、GDP比約231%） | 乗数表の比率変化から比率≈214%と逆算。資金循環の「負債・合計」は差額を含み資産合計と一致するため使わない |
@@ -265,10 +267,12 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 
 | 区分 | 変数 |
 |---|---|
-| 代用（別の統計で代替） | `HH`（世帯数→15歳以上人口）、`PLAND`（市街地価格指数→SNA土地残高の指数）、`PINP`・`PING`（在庫デフレーター→企業物価・公的固定資本形成デフレーター）、`PFUEL`（SNA→日銀輸入物価）、`BCV`（国際収支→SNA純輸出＋所得収支）、`WD_YVI`（世界GDP→OECD計）、`WD_PX`・`WD_PI`（競争国価格→米国PPI） |
+| 代用（別の統計で代替） | `PLAND`（市街地価格指数→SNA土地残高の指数。有償で、日本統計年鑑の掲載も2014年3月末まで）、`PINP`・`PING`（在庫デフレーター→企業物価・公的固定資本形成デフレーター）、`PFUEL`（SNA→日銀輸入物価）、`BCV`（国際収支→SNA純輸出＋所得収支）、`WD_YVI`（世界GDP→OECD計）、`WD_PX`・`WD_PI`（競争国価格→米国PPI） |
 | 仮定値（全期間一定） | `REQU` 0.40、`SLRATIO` 0.50、`ROR` 2.0、`TINCR` 0、`UREQ` 3.0、`IR` 1、`ERRBCV` 0 |
 | 逆算（Author 系列の代替） | 転嫁率 `PRT*`、除却率 `RR*`、均衡値 `ITREQ`・`CUXEQ`・`LHXEQ`・`WPHXREQ`、`ERRPFU`、`CCAVGR`・`RSBCV` |
 | 定義の解釈（論文の乗数表から特定） | `YCV`、`YIEV`、`SHARETV`、`SBGV` |
+
+世帯数 `HH` は論文と同じ住民基本台帳の世帯数（e-Stat）に替えた。`HH`・`PLAND` のように対数で入る系列は、水準や傾きを大きく変えても乗数が変わらない（×1.5×年率8%のトレンドで歪めても差0。誤差修正項を全部動かしても同じ。`src/experiment_proxy_levels.py`）。
 
 ## データの出典と利用条件
 
@@ -279,7 +283,7 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 |---|---|---|
 | 内閣府 経済社会総合研究所「国民経済計算（2015年基準）」「景気動向指数」 | `data/raw/vintage2021/*`（2021年10-12月期2次QE、2020年度年次推計）、`data/raw/gaku-*.csv`, `2022*_jp.xlsx`（2025年版）、`esri_ci1_*.xlsx` | [内閣府ホームページ利用規約](https://www.cao.go.jp/notice/rule.html)（公共データ利用規約） |
 | 日本銀行「時系列統計データ検索サイト」（為替、金利、マネーストック、企業物価、資金循環） | `data/raw/boj_*` | [サイトのご利用上の留意点等](https://www.stat-search.boj.or.jp/info/notice.html)（出所明記で転載可） |
-| 政府統計の総合窓口 e-Stat（総務省「労働力調査」、厚生労働省「毎月勤労統計調査」、経済産業省「製造工業生産能力・稼働率指数」、財務省「普通貿易統計」） | `data/raw/estat_*` | [e-Stat 利用規約](https://www.e-stat.go.jp/terms-of-use) |
+| 政府統計の総合窓口 e-Stat（総務省「労働力調査」、厚生労働省「毎月勤労統計調査」、経済産業省「製造工業生産能力・稼働率指数」、財務省「普通貿易統計」、総務省「住民基本台帳に基づく人口、人口動態及び世帯数」（社会・人口統計体系経由）） | `data/raw/estat_*` | [e-Stat 利用規約](https://www.e-stat.go.jp/terms-of-use) |
 | OECD Data Explorer（Financial market, Key short-term economic indicators, Quarterly National Accounts） | `data/raw/oecd_*`, `external_series.csv` | [OECD Terms and Conditions](https://www.oecd.org/en/about/terms-conditions.html)（CC BY 4.0） |
 | FRED（米セントルイス連銀）経由の米労働統計局「Producer Price Index by Industry: Total Manufacturing Industries」（2024年版のみ） | `data/raw/fred_PCUOMFGOMFG.csv` | [FRED Terms of Use](https://fred.stlouisfed.org/legal/)、原データは BLS（パブリックドメイン） |
 | 内閣府 ESRI「国民経済計算（2020年基準）」2026年4-6月期2次QE・2024年度年次推計（2024年版） | `data/raw/vintage2024/*` | 同上（内閣府ホームページ利用規約） |
