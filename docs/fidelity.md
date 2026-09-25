@@ -81,7 +81,7 @@ python src/simulate.py --itr level --ecm live   # 印刷どおりモード（出
 
 根拠（`experiment_ecm_greedy.py`）:
 
-1. **全有効から1本ずつ固定**（`experiment_ecm_freeze_one.csv`）: 固定して改善するのは IHP（MAE 0.0685→0.0489）、XGS、PNFMGSAT、LHX、PFUELAT、PLAND、PIFPAT、CGPIAT、YWV、FUEL の10本。固定して悪化するのは YICV（→0.0718）、PXGS、PCPAT、CP。
+1. **全有効から1本ずつ固定**（`experiment_ecm_freeze_one.csv`）: 固定して改善するのは IHP（MAE 0.0683→0.0487）、XGS、PNFMGSAT、LHX、PFUELAT、PLAND、PIFPAT、CGPIAT、YWV、FUEL の10本。固定して悪化するのは YICV（→0.0717）、PXGS、PCPAT、CP。
 2. **貪欲法**（`experiment_ecm_greedy.csv`）: 最も改善する項から順に固定すると、IHP → XGS → LHX → FUEL → PFUELAT → PLAND → PXGS → PNFMGSAT → PIFPAT → CGPIAT → YWV の順に単調に改善し、`CP`・`PCPAT`・`YICV` の3本が残ったところで止まる。以前の切り分け（`experiment_ecm_ablation.py`、`experiment_ecm_combo.py`）と同じ組に、逆方向の探索でも到達する。
 3. **印刷の形との対応**: 固定して改善する式は、論文で長期均衡を `LOG(x(-1)) − ( … 定数 )` の入れ子括弧で書いている（IHP, XGS, FUEL, LHX, CGPIAT, PIFPAT, PFUELAT, PNFMGSAT, PLAND）。動かすべき3本（CP, PCPAT, YICV）は入れ子なしで書かれている。2段階で推定した長期均衡の残差を外生の系列としてモデルに入れると、シミュレーションで誤差修正項が動かず、この結果になる。ESRI のモデルファイルは公開されていないため確認はできない。
 4. 同じ入れ子形で `ecm.py` の対象にしていない NFMGS・PCGAT・PIGAT（係数 −0.0004〜−0.013）は、固定しても結果が変わらない（`experiment_ecm_nested.csv`、差は MAE 0.0001 以内）。
