@@ -5,6 +5,7 @@
   estat_trade_crude_0003425296.csv      普通貿易統計 概況品別国別表 輸入 原油及び粗油 2021〜2025年（月別 数量・金額）
   estat_trade_fuel_0003425296.csv       同 鉱物性燃料
   estat_lfs_monthly_sa.csv              労働力調査 基本集計 月次 季節調整値（労働力人口・就業者・雇用者・非労働力人口・完全失業率）
+  estat_hh_0000010101.csv               社会・人口統計体系 住民基本台帳世帯数（日本人、全国、年度）。論文の HH（出所 SBSC,BRR）
 
 e-Stat API は連続リクエストで 403 を返すことがあるため、各リクエストの間に sleep を入れ、403 は待って再試行する。
 APP ID は環境変数 ESTAT_APP_ID で与える。
@@ -64,7 +65,7 @@ def get_stats_data(stats_id: str, **params) -> pd.DataFrame:
 
 
 def main() -> None:
-    which = sys.argv[1:] or ["cux", "trade", "lfs"]
+    which = sys.argv[1:] or ["cux", "trade", "lfs", "hh"]
     if "cux" in which:
         # 総合季節調整済指数【月次】 稼働率（2020＝100.0）: 製造工業（1100000000）の全期間
         d = get_stats_data("0004052231", cdCat02="1100000000")
@@ -78,6 +79,11 @@ def main() -> None:
             d = d[~d["cat02_name"].str.startswith(("合計", "単位"))]
             d.to_csv(RAW / f"estat_trade_{key}_0003425296.csv", index=False, encoding="utf-8-sig")
             print(f"trade {key}:", sorted(d.time_name.unique()), len(d))
+    if "hh" in which:
+        # 社会・人口統計体系 A 人口・世帯: A7103 住民基本台帳世帯数（日本人）、全国
+        d = get_stats_data("0000010101", cdCat01="A7103", cdArea="00000")
+        d.to_csv(RAW / "estat_hh_0000010101.csv", index=False, encoding="utf-8-sig")
+        print("hh:", d.time_name.min(), "〜", d.time_name.max(), len(d))
     if "lfs" in which:
         sid = os.environ.get("ESTAT_LFS_ID")
         if not sid:
