@@ -1,8 +1,7 @@
 """論文への忠実性の検証: 印刷どおりの式・別解釈・誤植の修正前の式で11シナリオを解き、乗数表との一致を比べる.
 
 既定の実装（model.py）は、論文の印刷から次の点で離れている。
-  - 誤植の修正 7 件（[fix] 注記。係数の値はすべて論文どおり）
-  - 式129（所得実効税率）を水準式ではなく DLOG 型で実装
+  - 誤植の修正 8 件（[fix] 注記。係数の値はすべて論文どおり。式129 の DLOG 型を含む）
   - 11 本の推定式の誤差修正項を標準解の値で固定（ecm.py）
 本スクリプトは、それぞれを印刷どおり（または別の読み方）に戻した場合の乗数を計算し、
 論文の乗数表との一致率・平均絶対誤差と、影響の大きい変数を出力する。
@@ -98,15 +97,21 @@ def eq116_x400() -> M.Eq:
         + 1.815275 * 400 * (dl(v, "PCPAT", 1) - dl(v, "PCPAT", 2))))
 
 
+def tci_base_printed_dummy(v) -> float:
+    """式134 のダミー項（係数 -0.011036*DTCIC2^2）の中の課税ベース。印刷は設備投資の項だけ 1+RTCI+PRTIF（加算）."""
+    r = v("RTCI")
+    return (r / (1 + r * v("PRTCP")) * v("CPV") + r / (1 + r + v("PRTIF")) * v("IFPV")
+            + r / (1 + r * v("PRTIH")) * v("IHPV") + r / (1 + r * v("PRTCG")) * v("CGV")
+            + r / (1 + r * v("PRTIG")) * v("IGV"))
+
+
 def eq134_printed() -> M.Eq:
-    """式134: 印刷どおり設備投資の項を RTCI/(1+RTCI+PRTIF) とする."""
-    def base(v):
-        r = v("RTCI")
-        return (r / (1 + r * v("PRTCP")) * v("CPV") + r / (1 + r + v("PRTIF")) * v("IFPV")
-                + r / (1 + r * v("PRTIH")) * v("IHPV") + r / (1 + r * v("PRTCG")) * v("CGV")
-                + r / (1 + r * v("PRTIG")) * v("IGV"))
+    """式134: 印刷どおり。主項（係数 0.915210）は乗算 RTCI/(1+RTCI*PRTIF) で、加算の誤植はダミー項の中だけ
+    （論文 本文 pp.66–67）。DTCIC2 = 0 の期は既定の式と同じになる."""
     return M.Eq(134, "TCIV", "log", lambda v: (
-        0.915210 * ln(base(v)) - 0.011036 * v("DTCIC2") * v("DTCIC2") * ln(base(v)) + 0.191987 * v("D972C")))
+        0.915210 * ln(M.tci_base(v))
+        - 0.011036 * v("DTCIC2") * v("DTCIC2") * ln(tci_base_printed_dummy(v))
+        + 0.191987 * v("D972C")))
 
 
 ALL_LIVE = frozenset(ECMOD.ECM_TERMS)
@@ -121,7 +126,7 @@ VARIANTS: list[tuple[str, str, dict, frozenset]] = [
     ("式57 定数 +0.000488", "印刷の '--0.000488' を正の定数と読む", {"CGPIAT": eq57_plus_const()}, ECMOD.DEFAULT_LIVE),
     ("式59 括弧を字義どおり", "PIFPATGR = (PIFPAT − 1)×100 と読む", {"PIFPATGR": eq59_literal()}, ECMOD.DEFAULT_LIVE),
     ("式116 ×400", "インフレ率の変化を年率（×400）で入れる", {"RGBX": eq116_x400()}, ECMOD.DEFAULT_LIVE),
-    ("式134 印刷どおり", "消費税の課税ベースに '1+RTCI+PRTIF' を使う", {"TCIV": eq134_printed()}, ECMOD.DEFAULT_LIVE),
+    ("式134 印刷どおり", "ダミー項の課税ベースだけ '1+RTCI+PRTIF' を使う（主項は乗算）", {"TCIV": eq134_printed()}, ECMOD.DEFAULT_LIVE),
 ]
 
 

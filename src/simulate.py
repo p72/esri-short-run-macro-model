@@ -172,7 +172,7 @@ def main() -> None:
         ecm_over, ecm_cols = {}, {}
         print("誤差修正項: すべて有効")
 
-    results = []
+    results, failed = [], []
     for s in build_scenarios(base, af):
         d = base.copy()
         for k, val in {**s.data, **ecm_cols}.items():
@@ -180,12 +180,17 @@ def main() -> None:
         try:
             shock = model.solve(d, SOLVE_START, END, af, fixed=s.fixed,
                                 overrides={**ecm_over, **s.overrides}, shocks=s.shocks)
-        except Exception as e:  # noqa: BLE001 - 失敗したシナリオは報告して続行
+        except Exception as e:  # noqa: BLE001 - 失敗したシナリオをすべて報告してから停止する
             print(f"({s.no}) {s.title}: 失敗 {e}")
+            failed.append(s.no)
             continue
         results.append(multipliers(shock, base, s.no))
         g = results[-1].query("variable == 'GDP' and quarter == 0")["value"].round(2).tolist()
         print(f"({s.no:2d}) {s.title:28s} 実質GDP 年乗数 {g}")
+
+    if failed:
+        # 一部のシナリオだけの結果を通常のファイル名で保存しない
+        raise SystemExit(f"シナリオ {failed} が失敗したため、結果を保存せずに終了します")
 
     # 出力は小数第8位で丸める（ソルバーの丸め誤差 1e-14 程度で再実行のたびに差分が出るのを防ぐ）
     rep = pd.concat(results, ignore_index=True).round({"value": 8})
