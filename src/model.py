@@ -31,8 +31,9 @@ BETA = 0.597440
 AVRDL = BETA
 FXS2015 = 121.04  # 2015年平均 円/ドル（対数内の定数なので乗数には影響しない）
 
-# 式129 所得実効税率: 印刷の左辺 LOG は DLOG の誤植と判定（[fix]）。印刷の係数 -0.959 と RSQ 0.479 の組は
-# 左辺を DLOG にした回帰でしか出ない（水準式なら RSQ ≈ 0.9。src/experiment_itr_form.py）。乗数表(1)の TYPV 経路とも一致する。
+# 式129 所得実効税率: 印刷の左辺は LOG（水準式）だが、DLOG 型と解釈して実装する（印刷からの逸脱。確証はない）。
+# 印刷の係数 -0.959 と自由度修正済み RSQ 0.479 の組は DLOG 型の回帰の値とよく整合し、水準式（RSQ 0.76〜0.96）とは合わない
+# （仮定したデータ生成過程でのシミュレーション。src/experiment_itr_form.py）。乗数表(1)の TYPV 経路とも一致する。
 # "level" で印刷どおりの水準式に切り替えられる。
 ITR_FORM = "dlog"
 
@@ -99,7 +100,7 @@ def typ_base(v, k):  # 個人所得税の課税ベース
 def tci_base(v):  # 消費税の課税ベース
     r = v("RTCI")
     return (r / (1 + r * v("PRTCP")) * v("CPV")
-            + r / (1 + r * v("PRTIF")) * v("IFPV")  # [fix] 論文 "1+JA_RTCI+PRTIF"
+            + r / (1 + r * v("PRTIF")) * v("IFPV")  # [fix] 論文はダミー項（-0.011036*DTCIC2^2）の中だけ "1+JA_RTCI+PRTIF"。主項は乗算
             + r / (1 + r * v("PRTIH")) * v("IHPV")
             + r / (1 + r * v("PRTCG")) * v("CGV")
             + r / (1 + r * v("PRTIG")) * v("IGV"))
@@ -635,7 +636,34 @@ class Model:
     def _arrays(data: pd.DataFrame) -> dict[str, np.ndarray]:
         return {c: data[c].to_numpy(dtype=float).copy() for c in data.columns}
 
+    @staticmethod
+    def _check_index(data: pd.DataFrame) -> None:
+        """四半期の PeriodIndex で、昇順・連続（欠落・重複なし）であることを確かめる."""
+        idx = data.index
+        if not isinstance(idx, pd.PeriodIndex) or idx.freqstr[0] != "Q":
+            raise ValueError("データの index は四半期の PeriodIndex でなければなりません")
+        if len(idx) and not idx.equals(pd.period_range(idx[0], periods=len(idx), freq=idx.freq)):
+            raise ValueError("データの四半期が昇順・連続になっていません（欠落・重複・逆順）")
+
+    @staticmethod
+    def _getter(X: dict[str, np.ndarray], index: pd.PeriodIndex, t: int, eq: "Eq | None" = None):
+        """期 t から見た v(変数, ラグ) を返す関数。データ範囲外のラグ・リードと非有限値は例外にする
+        （負の添字で配列の末尾を読んだり、NaN を下限関数などで黙って置き換えたりしないように）."""
+        n = len(index)
+
+        def v(name, k=0):
+            i = t - k
+            where = f"{index[t]} 式{eq.no} {eq.name}" if eq is not None else str(index[t])
+            if i < 0 or i >= n:
+                raise IndexError(f"{where}: {name}({-k:+d}) がデータの範囲外です")
+            val = X[name][i]
+            if not np.isfinite(val):
+                raise ValueError(f"{where}: {name}({-k:+d}) = {val}（{index[i]}）が有限値ではありません")
+            return val
+        return v
+
     def _positions(self, data: pd.DataFrame, start: str, end: str) -> range:
+        self._check_index(data)
         idx = data.index
         return range(idx.get_loc(pd.Period(start, "Q")), idx.get_loc(pd.Period(end, "Q")) + 1)
 
@@ -646,12 +674,11 @@ class Model:
         af = pd.DataFrame(0.0, index=data.index, columns=self.endog)
         problems = []
         for t in pos:
-            def v(n, k=0, _t=t):
-                return X[n][_t - k]
             for e in self.eqs:
+                v = self._getter(X, data.index, t, e)
                 try:
                     r = e.lhs_value(v) - e.rhs(v)
-                except (KeyError, ValueError, ZeroDivisionError, OverflowError) as err:
+                except (KeyError, ValueError, IndexError, ZeroDivisionError, OverflowError) as err:
                     problems.append((str(data.index[t]), e.no, e.name, repr(err)))
                     continue
                 if not np.isfinite(r):
@@ -666,35 +693,52 @@ class Model:
               fixed: dict[str, pd.Series] | None = None,
               overrides: dict[str, Eq] | None = None,
               shocks: dict[str, pd.Series] | None = None,
-              tol: float = 1e-10, maxit: int = 1000) -> pd.DataFrame:
+              tol: float = 1e-10, maxit: int = 1000, check_tol: float = 1e-6) -> pd.DataFrame:
         """ガウス＝ザイデル法で期ごとに同時方程式を解く.
 
         fixed:     内生変数を所与の経路で固定（式を外生化）
         overrides: 式を差し替え（例: 貨幣供給量外生化時の金利決定式）
         shocks:    変換後の左辺に加えるインパクト（アドファクターと同じ次元）
+        誤差項・固定値・ショックは四半期ラベルで揃える。参照値・右辺・解・初期値に非有限値があれば、
+        期・式・変数を示して停止する。解いた後に全式の残差を確かめる（check_tol を超えたら停止）。
         """
         fixed = fixed or {}
         overrides = overrides or {}
         shocks = shocks or {}
         X = self._arrays(data)
+        pos = self._positions(data, start, end)
+        window = data.index[pos.start:pos.stop]
         for n, s in fixed.items():
             X[n] = s.reindex(data.index).to_numpy(dtype=float).copy()
+            if not np.isfinite(X[n][pos.start:pos.stop]).all():
+                raise ValueError(f"固定値 {n} に {start}〜{end} の欠落・非有限値があります")
         eqs = [overrides.get(e.name, e) for e in self.eqs]
-        A = {n: af[n].to_numpy() for n in af.columns}
+        missing = window.difference(af.index)
+        if len(missing):
+            raise ValueError(f"誤差項に {len(missing)} 期の欠落があります（例: {missing[0]}）")
+        afr = af.reindex(data.index)  # 行の並び順ではなく四半期ラベルで揃える
+        A = {n: afr[n].to_numpy() for n in afr.columns}
+        for n, a_ in A.items():
+            if not np.isfinite(a_[pos.start:pos.stop]).all():
+                raise ValueError(f"誤差項 {n} に {start}〜{end} の非有限値があります")
         S = {n: s.reindex(data.index).fillna(0.0).to_numpy() for n, s in shocks.items()}
-        pos = self._positions(data, start, end)
+        active = [e for e in eqs if e.name not in fixed]
         for t in pos:
-            def v(n, k=0, _t=t):
-                return X[n][_t - k]
+            for e in active:
+                if not np.isfinite(X[e.name][t]):
+                    raise ValueError(f"{data.index[t]} 式{e.no} {e.name}: 初期値が有限値ではありません")
             for it in range(maxit):
                 worst = 0.0
-                for e in eqs:
-                    if e.name in fixed:
-                        continue
+                for e in active:
+                    v = self._getter(X, data.index, t, e)
                     # 差し替え式で新たに内生化した変数には誤差項がない（0とする）
                     a = A[e.name][t] if e.name in A else 0.0
                     y = e.rhs(v) + a + (S[e.name][t] if e.name in S else 0.0)
+                    if not np.isfinite(y):
+                        raise ValueError(f"{data.index[t]} 式{e.no} {e.name}: 右辺が有限値ではありません（{y}）")
                     new = e.invert(v, y)
+                    if not np.isfinite(new):
+                        raise ValueError(f"{data.index[t]} 式{e.no} {e.name}: 解が有限値ではありません（{new}）")
                     old = X[e.name][t]
                     worst = max(worst, abs(new - old) / (1.0 + abs(old)))
                     X[e.name][t] = new
@@ -702,4 +746,16 @@ class Model:
                     break
             else:
                 raise RuntimeError(f"{data.index[t]} で収束しませんでした (最大変化 {worst:.2e})")
+        # 解いた後の方程式残差: 変換後の左辺 −（右辺 + 誤差項 + ショック）
+        worst_res, where = 0.0, ""
+        for t in pos:
+            for e in active:
+                v = self._getter(X, data.index, t, e)
+                a = A[e.name][t] if e.name in A else 0.0
+                r = e.lhs_value(v) - (e.rhs(v) + a + (S[e.name][t] if e.name in S else 0.0))
+                scale = 1.0 + abs(e.lhs_value(v))
+                if not np.isfinite(r) or abs(r) / scale > worst_res:
+                    worst_res, where = (np.inf if not np.isfinite(r) else abs(r) / scale), f"{data.index[t]} 式{e.no} {e.name}"
+        if worst_res > check_tol:
+            raise RuntimeError(f"解の方程式残差が大きすぎます: {where}（{worst_res:.2e}）")
         return pd.DataFrame(X, index=data.index)

@@ -4,7 +4,12 @@
 （t値の行、RSQ/SER/DW の行、変数名に含まれる数字は除く）。model.py も add(no, ...) ごとに分け、
 同じ集合を作って差分を表示する。単位換算などの定数（100, 400, 4 など）は照合から外す。
 
-出力: 差分のある式の一覧（無ければ「すべて一致」）。差分があれば終了コード 1。
+式番号 1〜152 が論文とモデルの両方にそろっているかも確かめる（係数のない恒等式を消しても見逃さないように）。
+
+検査の限界: 比べるのは各式の係数・定数の「絶対値の集合」だけで、符号・括弧の位置・ラグ・同じ係数の出現回数・
+変数の取り違えは検査しない。これらは目視で照合した（docs/fidelity.md §2）。
+
+出力: 差分のある式の一覧（無ければ「すべて一致」）。差分や式番号の欠落があれば終了コード 1。
 """
 from __future__ import annotations
 
@@ -17,6 +22,7 @@ PAPER = ROOT / "reference" / "rn72_2022model.txt"
 MODEL = ROOT / "src" / "model.py"
 # 式に現れる単位換算・構造上の定数（係数ではない）
 STRUCTURAL = {1.0, 2.0, 3.0, 4.0, 5.0, 8.0, 18.0, 100.0, 200.0, 400.0, 0.1, 0.71, 0.001}
+N_EQ = 152  # 論文 付属資料III の式の数
 
 
 def paper_blocks() -> dict[int, list[str]]:
@@ -77,6 +83,10 @@ def main() -> None:
     if not PAPER.exists():
         raise SystemExit(f"{PAPER} がありません。先に python src/fetch_paper.py を実行してください")
     pb, mb = paper_blocks(), model_blocks()
+    expected = set(range(1, N_EQ + 1))
+    missing = {"論文": sorted(expected - set(pb)), "model.py": sorted(expected - set(mb))}
+    extra = {"論文": sorted(set(pb) - expected), "model.py": sorted(set(mb) - expected)}
+    bad = [f"{k} に式番号の欠落 {v}" for k, v in missing.items() if v] + [f"{k} に想定外の式番号 {v}" for k, v in extra.items() if v]
     diffs = []
     for no in sorted(pb):
         p = paper_numbers(pb[no]) - STRUCTURAL
@@ -84,8 +94,10 @@ def main() -> None:
         if p != q:
             diffs.append((no, sorted(p - q), sorted(q - p)))
     print(f"照合した式: {len(pb)}（論文）/ {len(mb)}（model.py）")
-    if not diffs:
-        print("係数・定数はすべて一致")
+    for msg in bad:
+        print(msg)
+    if not diffs and not bad:
+        print(f"式番号 1〜{N_EQ} がそろい、係数・定数（絶対値の集合）はすべて一致")
         return
     for no, po, mo in diffs:
         print(f"式{no}: 論文のみ {po}  model.py のみ {mo}")
