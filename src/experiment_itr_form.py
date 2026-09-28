@@ -16,14 +16,20 @@
 GDPギャップはランダムウォーク（標準偏差0.3%）、誤差は独立な正規分布、初期値は0と仮定する。
 原データによる再推定ではないので、結果は「この仮定のもとでの整合性」であり、誤植の確証ではない。
 
-出力: output/experiment_itr_form.csv
+あわせて、同梱の ESRI 年次推計の四半期データ（1994年〜）で ITR を作り、1995Q1〜2020Q4 で両方の形を推定し直す。
+ITR の作り方は3通り（季節調整済み＝モデルと同じ、原系列×課税ベース4期平均、原系列×同じ期の課税ベース）。
+1990年代前半の四半期データと、同じ期間の GDP ギャップ（モデルの定義）がないため、GDP ギャップは説明変数に入れない（k=2）。
+
+出力: output/experiment_itr_form.csv（シミュレーション）、output/experiment_itr_reestimate.csv（再推定）
 """
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 B_LAG, B_GAP, SER = -0.958520, 0.625328, 0.062475  # 2022年版の印刷
 N = 125  # 1989Q4〜2020Q4 を生成し、ラグをとって 1990Q1〜2020Q4 の124期で推定する
 REPS = 2000
@@ -72,5 +78,46 @@ def main() -> None:
           "原データの再推定・正誤表・著者資料による確証ではない。")
 
 
+
+def reestimate() -> pd.DataFrame:
+    """同梱の四半期データで ITR を作り、1995Q1〜2020Q4 で水準式と DLOG 型を推定し直す."""
+    import sna  # ESRI 年次推計の四半期シート（原系列）
+
+    inc = sna.income_block().loc["1994Q1":"2020Q4"]
+    otyd = inc.YDV - (inc.YWV + inc.BSSV + inc.YIEV + inc.YICV - inc.TYPV - inc.CSSV)
+    base_raw = inc.YWV + inc.BSSV + inc.YIEV + inc.YICV + otyd
+    sa = pd.read_csv(ROOT / "data" / "processed" / "sna_quarterly.csv", index_col=0)
+    sa.index = pd.PeriodIndex(sa.index, freq="Q")
+    sa = sa.loc["1994Q1":"2020Q4"]
+    base_sa = sa.YWV + sa.BSSV + sa.YIEV + sa.YICV + sa.OTYDV
+    series = {
+        "季節調整済み・課税ベース4期平均（モデルと同じ）": sa.TYPV / base_sa.rolling(4).mean(),
+        "原系列・課税ベース4期平均": inc.TYPV / base_raw.rolling(4).mean(),
+        "原系列・同じ期の課税ベース": inc.TYPV / base_raw,
+    }
+    rows = []
+    for name, itr in series.items():
+        x = np.log(itr / itr.loc["1995Q1":"2020Q4"].mean()).loc["1994Q4":"2020Q4"].dropna()
+        y, lag = x.values[1:], x.values[:-1]
+        for form, lhs in (("水準式", y), ("DLOG型", y - lag)):
+            X = np.column_stack([np.ones(len(lhs)), lag])
+            b = np.linalg.lstsq(X, lhs, rcond=None)[0]
+            e = lhs - X @ b
+            n, k = X.shape
+            r2 = 1 - (e @ e / (n - k)) / (((lhs - lhs.mean()) ** 2).sum() / (n - 1))
+            rows.append(dict(ITRの作り方=name, 形=form, 推定期間=f"{x.index[1]}〜{x.index[-1]}", 観測数=n,
+                             前期の係数=b[1], 自由度修正RSQ=r2, SER=np.sqrt(e @ e / (n - k))))
+    rows.append(dict(ITRの作り方="論文2022年版の印刷", 形="（左辺の表記は LOG）", 推定期間="1990Q1〜2020Q4", 観測数=124,
+                     前期の係数=B_LAG, 自由度修正RSQ=0.478962, SER=SER))
+    out = pd.DataFrame(rows)
+    out.to_csv(ROOT / "output" / "experiment_itr_reestimate.csv", index=False, encoding="utf-8-sig", float_format="%.4f")
+    print(out.round(3).to_string(index=False))
+    print("\nどの作り方でも、印刷の（係数 -0.959, RSQ 0.479, SER 0.062）の組は再現できない。ESRI の ITR の作り方"
+          "（季節調整の方法・税の計上時期など）が同梱データから再現できないため、原データでの確証は得られない。")
+    return out
+
+
 if __name__ == "__main__":
     main()
+    print()
+    reestimate()
