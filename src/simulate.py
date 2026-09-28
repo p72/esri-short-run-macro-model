@@ -180,9 +180,8 @@ def main() -> None:
         try:
             shock = model.solve(d, SOLVE_START, END, af, fixed=s.fixed,
                                 overrides={**ecm_over, **s.overrides}, shocks=s.shocks)
-        except Exception as e:  # noqa: BLE001 - 失敗したシナリオは報告して続行
-            print(f"({s.no}) {s.title}: 失敗 {e}")
-            continue
+        except Exception as e:  # noqa: BLE001 - 不完全な11シナリオを正常な結果として保存しない
+            raise RuntimeError(f"({s.no}) {s.title}: 失敗 {e}") from e
         results.append(multipliers(shock, base, s.no))
         g = results[-1].query("variable == 'GDP' and quarter == 0")["value"].round(2).tolist()
         print(f"({s.no:2d}) {s.title:28s} 実質GDP 年乗数 {g}")

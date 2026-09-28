@@ -77,6 +77,11 @@ def main() -> None:
     if not PAPER.exists():
         raise SystemExit(f"{PAPER} がありません。先に python src/fetch_paper.py を実行してください")
     pb, mb = paper_blocks(), model_blocks()
+    expected = set(range(1, 153))
+    for label, blocks in (("論文", pb), ("model.py", mb)):
+        if set(blocks) != expected:
+            raise SystemExit(f"{label}: 式番号が不完全です。欠落 {sorted(expected - set(blocks))}、"
+                             f"範囲外 {sorted(set(blocks) - expected)}")
     diffs = []
     for no in sorted(pb):
         p = paper_numbers(pb[no]) - STRUCTURAL
@@ -85,7 +90,7 @@ def main() -> None:
             diffs.append((no, sorted(p - q), sorted(q - p)))
     print(f"照合した式: {len(pb)}（論文）/ {len(mb)}（model.py）")
     if not diffs:
-        print("係数・定数はすべて一致")
+        print("係数・定数の絶対値集合はすべて一致（符号・括弧・ラグ・重複数は別途検証が必要）")
         return
     for no, po, mo in diffs:
         print(f"式{no}: 論文のみ {po}  model.py のみ {mo}")

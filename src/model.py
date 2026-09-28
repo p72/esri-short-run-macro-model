@@ -637,7 +637,26 @@ class Model:
 
     def _positions(self, data: pd.DataFrame, start: str, end: str) -> range:
         idx = data.index
-        return range(idx.get_loc(pd.Period(start, "Q")), idx.get_loc(pd.Period(end, "Q")) + 1)
+        if (not isinstance(idx, pd.PeriodIndex) or len(idx) == 0
+                or idx.freqstr != "Q-DEC" or not idx.is_unique
+                or not idx.equals(pd.period_range(idx[0], periods=len(idx), freq="Q"))):
+            raise ValueError("データは重複・欠落のない昇順の四半期 PeriodIndex が必要です")
+        first, last = pd.Period(start, "Q"), pd.Period(end, "Q")
+        if first > last or first not in idx or last not in idx:
+            raise ValueError(f"計算期間 {first}〜{last} が不正です（データ: {idx[0]}〜{idx[-1]}）")
+        return range(idx.get_loc(first), idx.get_loc(last) + 1)
+
+    @staticmethod
+    def _getter(X: dict[str, np.ndarray], index: pd.PeriodIndex, t: int) -> Getter:
+        def v(n, k=0):
+            j = t - k
+            if not 0 <= j < len(index):
+                raise ValueError(f"{index[t]}: {n} の参照期 {index[t] - k} がデータ範囲外です")
+            value = X[n][j]
+            if not math.isfinite(value):
+                raise ValueError(f"{index[t]}: {n}（参照期 {index[j]}）が非有限値です")
+            return value
+        return v
 
     def add_factors(self, data: pd.DataFrame, start: str, end: str) -> pd.DataFrame:
         """実績値に対する各式の残差（CERR*ERTS_xx に相当）を計算する."""
@@ -646,8 +665,7 @@ class Model:
         af = pd.DataFrame(0.0, index=data.index, columns=self.endog)
         problems = []
         for t in pos:
-            def v(n, k=0, _t=t):
-                return X[n][_t - k]
+            v = self._getter(X, data.index, t)
             for e in self.eqs:
                 try:
                     r = e.lhs_value(v) - e.rhs(v)
@@ -676,26 +694,38 @@ class Model:
         fixed = fixed or {}
         overrides = overrides or {}
         shocks = shocks or {}
+        if not math.isfinite(tol) or tol <= 0 or maxit < 1:
+            raise ValueError("tol は正の有限値、maxit は1以上が必要です")
+        pos = self._positions(data, start, end)
         X = self._arrays(data)
         for n, s in fixed.items():
             X[n] = s.reindex(data.index).to_numpy(dtype=float).copy()
         eqs = [overrides.get(e.name, e) for e in self.eqs]
-        A = {n: af[n].to_numpy() for n in af.columns}
+        # Series の行順ではなく四半期ラベルで合わせる。欠落した期は0で埋めない。
+        aligned_af = af.reindex(data.index)
+        A = {n: aligned_af[n].to_numpy(dtype=float) for n in aligned_af.columns}
         S = {n: s.reindex(data.index).fillna(0.0).to_numpy() for n, s in shocks.items()}
-        pos = self._positions(data, start, end)
         for t in pos:
-            def v(n, k=0, _t=t):
-                return X[n][_t - k]
+            v = self._getter(X, data.index, t)
+            for n in fixed:
+                v(n)  # 他の式が参照しない固定変数でも欠損を見逃さない
             for it in range(maxit):
                 worst = 0.0
                 for e in eqs:
                     if e.name in fixed:
                         continue
                     # 差し替え式で新たに内生化した変数には誤差項がない（0とする）
-                    a = A[e.name][t] if e.name in A else 0.0
-                    y = e.rhs(v) + a + (S[e.name][t] if e.name in S else 0.0)
-                    new = e.invert(v, y)
-                    old = X[e.name][t]
+                    try:
+                        a = A[e.name][t] if e.name in A else 0.0
+                        y = e.rhs(v) + a + (S[e.name][t] if e.name in S else 0.0)
+                        if not math.isfinite(y):
+                            raise ValueError("右辺・誤差項・ショックの合計が非有限値です")
+                        new = e.invert(v, y)
+                        if not math.isfinite(new):
+                            raise ValueError("逆変換後の値が非有限値です")
+                        old = v(e.name)
+                    except (KeyError, ValueError, ZeroDivisionError, OverflowError) as err:
+                        raise ValueError(f"{data.index[t]} eq{e.no} {e.name}: {err}") from err
                     worst = max(worst, abs(new - old) / (1.0 + abs(old)))
                     X[e.name][t] = new
                 if worst < tol:

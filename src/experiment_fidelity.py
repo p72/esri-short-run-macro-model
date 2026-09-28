@@ -99,14 +99,14 @@ def eq116_x400() -> M.Eq:
 
 
 def eq134_printed() -> M.Eq:
-    """式134: 印刷どおり設備投資の項を RTCI/(1+RTCI+PRTIF) とする."""
+    """式134: ダミー項の中だけ設備投資の分母を 1+RTCI+PRTIF とする（本文pp.66–67）."""
     def base(v):
         r = v("RTCI")
         return (r / (1 + r * v("PRTCP")) * v("CPV") + r / (1 + r + v("PRTIF")) * v("IFPV")
                 + r / (1 + r * v("PRTIH")) * v("IHPV") + r / (1 + r * v("PRTCG")) * v("CGV")
                 + r / (1 + r * v("PRTIG")) * v("IGV"))
     return M.Eq(134, "TCIV", "log", lambda v: (
-        0.915210 * ln(base(v)) - 0.011036 * v("DTCIC2") * v("DTCIC2") * ln(base(v)) + 0.191987 * v("D972C")))
+        0.915210 * ln(M.tci_base(v)) - 0.011036 * v("DTCIC2") * v("DTCIC2") * ln(base(v)) + 0.191987 * v("D972C")))
 
 
 ALL_LIVE = frozenset(ECMOD.ECM_TERMS)
@@ -121,7 +121,7 @@ VARIANTS: list[tuple[str, str, dict, frozenset]] = [
     ("式57 定数 +0.000488", "印刷の '--0.000488' を正の定数と読む", {"CGPIAT": eq57_plus_const()}, ECMOD.DEFAULT_LIVE),
     ("式59 括弧を字義どおり", "PIFPATGR = (PIFPAT − 1)×100 と読む", {"PIFPATGR": eq59_literal()}, ECMOD.DEFAULT_LIVE),
     ("式116 ×400", "インフレ率の変化を年率（×400）で入れる", {"RGBX": eq116_x400()}, ECMOD.DEFAULT_LIVE),
-    ("式134 印刷どおり", "消費税の課税ベースに '1+RTCI+PRTIF' を使う", {"TCIV": eq134_printed()}, ECMOD.DEFAULT_LIVE),
+    ("式134 印刷どおり", "消費税のダミー項の課税ベースだけに '1+RTCI+PRTIF' を使う", {"TCIV": eq134_printed()}, ECMOD.DEFAULT_LIVE),
 ]
 
 
@@ -130,7 +130,7 @@ def main() -> None:
     pub = pub[pub.quarter == 0]
     rows, ref = [], None
     for name, desc, rep, live in VARIANTS:
-        itr = rep.pop("__itr__", "dlog") if "__itr__" in rep else "dlog"
+        itr = rep.get("__itr__", "dlog")
         rep = {k: v for k, v in rep.items() if k != "__itr__"}
         try:
             res = run(equations(itr, rep), live)
