@@ -6,6 +6,8 @@
   estat_trade_fuel_0003425296.csv       同 鉱物性燃料
   estat_lfs_monthly_sa.csv              労働力調査 基本集計 月次 季節調整値（労働力人口・就業者・雇用者・非労働力人口・完全失業率）
   estat_hh_0000010101.csv               社会・人口統計体系 住民基本台帳世帯数（日本人、全国、年度）。論文の HH（出所 SBSC,BRR）
+  estat_cpi_0003427113.csv              消費者物価指数（2020年基準、全国、月次、指数）総合・生鮮食品を除く総合・
+                                        生鮮食品及びエネルギーを除く総合・財・サービス（為替パススルーの検証用）
 
 e-Stat API は連続リクエストで 403 を返すことがあるため、各リクエストの間に sleep を入れ、403 は待って再試行する。
 APP ID は環境変数 ESTAT_APP_ID で与える。
@@ -65,7 +67,7 @@ def get_stats_data(stats_id: str, **params) -> pd.DataFrame:
 
 
 def main() -> None:
-    which = sys.argv[1:] or ["cux", "trade", "lfs", "hh"]
+    which = sys.argv[1:] or ["cux", "trade", "lfs", "hh", "cpi"]
     if "cux" in which:
         # 総合季節調整済指数【月次】 稼働率（2020＝100.0）: 製造工業（1100000000）の全期間
         d = get_stats_data("0004052231", cdCat02="1100000000")
@@ -84,6 +86,12 @@ def main() -> None:
         d = get_stats_data("0000010101", cdCat01="A7103", cdArea="00000")
         d.to_csv(RAW / "estat_hh_0000010101.csv", index=False, encoding="utf-8-sig")
         print("hh:", d.time_name.min(), "〜", d.time_name.max(), len(d))
+    if "cpi" in which:
+        # 2020年基準 消費者物価指数 全国 月次 指数（cdTab=1）
+        d = get_stats_data("0003427113", cdTab="1", cdArea="00000", cdCat01="0001,0161,0178,0202,0220")
+        d = d[d["time_name"].str.contains("月")]
+        d.to_csv(RAW / "estat_cpi_0003427113.csv", index=False, encoding="utf-8-sig")
+        print("cpi:", sorted(d.cat01_name.unique()), d.time_name.min(), "〜", d.time_name.max(), len(d))
     if "lfs" in which:
         sid = os.environ.get("ESTAT_LFS_ID")
         if not sid:

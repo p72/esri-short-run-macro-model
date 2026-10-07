@@ -1,10 +1,13 @@
 """日本銀行 時系列統計データ検索サイト API から月次・四半期系列を取得する.
 
 出力: data/raw/boj_<DB>_<CODE>.json（生データ）と data/raw/boj_series.csv（縦持ち）
+--passthrough: 為替パススルーの検証用の系列だけを data/raw/boj_passthrough.csv に取得する
+（モデル用の boj_series.csv は書き換えない）
 """
 from __future__ import annotations
 
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -29,6 +32,14 @@ FIXED = {
     "GOV_FL": ("FF", "FOF_FFAS420L900"),      # 同 負債合計
     "GOV_NFA": ("FF", "FOF_FFAS420L700"),     # 同 金融資産・負債差額
     "HH_SHARE": ("FF", "FOF_FFAS430A330"),    # 資金循環 家計 株式等（ストック）
+}
+
+# 為替パススルーの検証用（src/experiment_fx_passthrough.py）
+PASSTHROUGH = {
+    "IMP_YEN": ("PR01", "PRCG20_2600000000"),       # 輸入物価指数 円ベース 総平均（2020年基準、接続）
+    "IMP_CONTRACT": ("PR01", "PRCG20_2500000000"),  # 輸入物価指数 契約通貨ベース 総平均
+    "NEER": ("FM09", "FX180110001"),               # 名目実効為替レート指数（上昇＝円高）
+    "FXS": ("FM08", "FXERM07"),                    # ドル円 17時 月中平均
 }
 
 
@@ -67,7 +78,21 @@ def fetch(db: str, code: str) -> pd.Series:
     return out
 
 
+def save(targets: dict[str, tuple[str, str]], out: Path) -> None:
+    rows = []
+    for name, (db, code) in targets.items():
+        s = fetch(db, code)
+        print(f"{name:12s} {db}/{code:22s} {s.attrs['freq']:10s} {s.index[0]}–{s.index[-1]}  {s.attrs['name']}")
+        rows.append(pd.DataFrame({"name": name, "db": db, "code": code, "date": s.index, "value": s.values}))
+    df = pd.concat(rows, ignore_index=True)
+    df.to_csv(out, index=False, encoding="utf-8-sig")
+    print(f"{len(df)} 行 → {out}")
+
+
 def main() -> None:
+    if "--passthrough" in sys.argv:
+        save(PASSTHROUGH, RAW / "boj_passthrough.csv")
+        return
     targets = dict(FIXED)
 
     # 輸入物価指数（円ベース）石油・石炭・天然ガス
@@ -87,14 +112,7 @@ def main() -> None:
         if c:
             targets[key] = ("FF", c[0]["SERIES_CODE"])
 
-    rows = []
-    for name, (db, code) in targets.items():
-        s = fetch(db, code)
-        print(f"{name:10s} {db}/{code:22s} {s.attrs['freq']:10s} {s.index[0]}–{s.index[-1]}  {s.attrs['name']}")
-        rows.append(pd.DataFrame({"name": name, "db": db, "code": code, "date": s.index, "value": s.values}))
-    df = pd.concat(rows, ignore_index=True)
-    df.to_csv(RAW / "boj_series.csv", index=False, encoding="utf-8-sig")
-    print(f"{len(df)} 行 → {RAW / 'boj_series.csv'}")
+    save(targets, RAW / "boj_series.csv")
 
 
 if __name__ == "__main__":
