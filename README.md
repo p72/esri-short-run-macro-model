@@ -82,7 +82,7 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 | `src/check_transcription.py` | 論文の各式の係数・定数と `model.py` の機械照合 |
 | `src/experiment_fidelity.py` | 印刷どおり・別解釈・誤植修正前の式で解いた一致度（`docs/fidelity.md`、結果は `output/experiment_fidelity.csv`） |
 | `src/experiment_proxy_levels.py` | 代用系列（`HH`・`PLAND`）の水準・傾きを歪めて解き直し、乗数が変わらないことを確認（Issue #3、結果は `output/experiment_proxy_levels.csv`） |
-| `src/experiment_tot_policy.py` | 交易損失と金融政策の枠組み: 2022年規模の交易ショックを、金利固定・テイラー・ルール・物価重視の引締め（と参考にパススルーを推定し直した式）で解き、GDPデフレーターの寄与度分解・賃金・実質GDPを比べる（結果は `output/experiment_tot_policy*.csv`、図は `src/plot_tot_policy.py` → `output/tot_policy.png`） |
+| `src/experiment_tot_policy.py` | 交易損失と金融政策の枠組み: 2022年規模の交易ショックを、金利固定・テイラー・ルール・物価重視の引締め（と参考にパススルーを推定し直した式）で解き、GDPデフレーターの寄与度分解・賃金・実質GDPを比べる（結果は `output/experiment_tot_policy*.csv`、図は `src/plot_tot_policy.py` → `output/tot_policy.png`、解説図3枚は `src/plot_tot_policy_explainer.py` → `output/tot_policy_explain{1,2,3}.png`） |
 | `src/experiment_fx_passthrough.py` | 円安の物価押し上げ効果: モデルの経路分解、CPI のパススルーの期間別・10年移動窓の推定、式56・68 を2011〜2024年で推定し直したモデルでの円10%減価（結果は `output/experiment_fx_passthrough_*.csv`、図は `src/plot_fx_passthrough.py` → `output/fx_passthrough.png`） |
 | `src/experiment_itr_form.py` | 式129 の左辺が水準か DLOG かを、印刷された係数と自由度修正済み決定係数から検討し、同梱データでも推定し直す（Issue #2・#19、結果は `output/experiment_itr_form.csv`・`experiment_itr_reestimate.csv`） |
 | `src/experiment_ecm_greedy.py` | 誤差修正項の固定の探索（1本ずつ固定、貪欲法、入れ子形の追加3本） |
@@ -342,6 +342,12 @@ note 記事「[交易損失は賃金を下げるのか](https://github.com/p72/n
 | 実質GDP（%） | −0.36 | −0.38 | −0.55 | −0.40 |
 
 ![交易損失と金融政策の枠組み](output/tot_policy.png)
+
+解説図（`src/plot_tot_policy_explainer.py`）:
+
+![モデルの答えは2008年型](output/tot_policy_explain1.png)
+![金融政策の違いはほとんど効かない](output/tot_policy_explain2.png)
+![交易損失は誰が負担したか](output/tot_policy_explain3.png)
 
 **読み方**
 - モデルでは、どの政策でも交易損失はほとんど賃金と利潤の下落で吸収される。国内の物価はほとんど上がらず（国内需要デフレーターの寄与は+0.3%pt）、名目賃金は約2%下がる。記事の2008年型（デフレへの回帰）に近い。
