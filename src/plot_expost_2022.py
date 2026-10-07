@@ -5,7 +5,9 @@
 下段: 2024年の実績−予測を、主な式ごとの寄与に分けた横棒（GDPデフレーター、名目雇用者報酬）と、
      誤差項が平時から大きく外れた式（z 値）
 
-出力: output/expost_2022.png（日本語フォント IPAPGothic が必要）
+表: note 記事（docs/note_expost_2022.md）用に、水準と2024年の寄与を表の画像にする（数値は CSV から読む）
+
+出力: output/expost_2022.png, output/expost_2022_table{1,2}.png（日本語フォント IPAPGothic が必要）
 """
 from pathlib import Path
 
@@ -34,6 +36,51 @@ ZNAME = {"CGPI": "式74 企業物価（税込み）", "PGDPAT": "式55 国内物
          "CSSV": "式137 社会保険料", "CCAVG": "式139 政府の固定資本減耗", "RSHARE": "式117 株式収益率",
          "IHP": "式5 住宅投資", "RGBX": "式116 長期金利", "PFUELAT": "式67 燃料輸入物価", "PXGS": "式65 輸出物価",
          "XGS": "式9 輸出", "CGPIAT": "式57 企業物価", "YWV": "式89 雇用者報酬", "PCPAT": "式56 消費デフレーター"}
+
+
+def table(name: str, title: str, header: list[str], rows: list[list[str]], widths: list[float], note: str) -> None:
+    W, rh = sum(widths), 0.6
+    h = rh * (len(rows) + 1) + 1.5
+    fig = plt.figure(figsize=(W, h))
+    fig.patch.set_facecolor("white")
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, W)
+    ax.set_ylim(h, 0)
+    ax.axis("off")
+    ax.text(0.25, 0.5, title, fontsize=15, color=INK, va="center")
+    y = 1.0
+    for r, row in enumerate([header] + rows):
+        ax.add_patch(plt.Rectangle((0, y), W, rh, color="#f3f2ee" if r == 0 else "white", lw=0))
+        x = 0
+        for c, (txt, w) in enumerate(zip(row, widths)):
+            bold = r > 0 and row[0].startswith("合計")
+            ax.text(x + (0.2 if c == 0 else w / 2), y + rh / 2, txt, fontsize=12 if r else 11,
+                    color=INK2 if r == 0 else INK, ha="left" if c == 0 else "center", va="center",
+                    fontweight="bold" if bold else "normal")
+            x += w
+        ax.plot([0, W], [y + rh, y + rh], color=GRID, lw=1)
+        y += rh
+    ax.text(0.25, y + 0.35, note, fontsize=9.5, color=INK2, va="center")
+    fig.savefig(OUT / f"expost_2022_{name}.png", dpi=180, facecolor="white")
+    plt.close(fig)
+
+
+def tables() -> None:
+    lv = pd.read_csv(OUT / "experiment_expost_2022_levels.csv", index_col=0)
+    rows = []
+    for var in ("GDPデフレーター", "消費デフレーター", "実質GDP"):
+        a, p = lv.loc["2024Q4", f"{var}|実績"], lv.loc["2024Q4", f"{var}|モデルの予測"]
+        rows.append([var, f"{a:.1f}", f"{p:.1f}"])
+    table("table1", "2024年10-12月期の水準（2021年10-12月期＝100）", ["", "実績", "モデルの予測"], rows, [4.0, 2.0, 2.4],
+          "モデルの予測は、2022年から各式の誤差項を平時（2014〜19年）の平均にして解いた値。")
+    d = pd.read_csv(OUT / "experiment_expost_2022.csv")
+    y24 = d[d["年"] == 2024].set_index("区分")
+    pick = [("合計（実績−予測）", "実績−モデルの予測（全体）"), ("式55 国内物価（GDPデフレーター）", "式55 PGDPAT だけの寄与"),
+            ("式65 輸出物価", "式65 PXGS だけの寄与"), ("式56 消費デフレーター", "式56 PCPAT だけの寄与"),
+            ("式68 非燃料輸入物価", "式68 PNFMGSAT だけの寄与"), ("式89 雇用者報酬（労働分配率）", "式89 YWV だけの寄与")]
+    rows = [[lab, f"{y24.loc[k, 'GDPデフレーター']:+.1f}", f"{y24.loc[k, '名目雇用者報酬']:+.1f}"] for lab, k in pick]
+    table("table2", "2024年の「実績−モデルの予測」は、どの式から来たか", ["", "GDPデフレーター（%）", "名目雇用者報酬（%）"],
+          rows, [4.6, 2.6, 2.6], "年平均。寄与は「その式だけ実績に戻す」と「その式だけ平時にする」の平均。主な式だけ示す。")
 
 
 def main() -> None:
@@ -133,7 +180,8 @@ def main() -> None:
     fig.text(0.01, 0.012, note, fontsize=8, color=INK2, linespacing=1.55, va="bottom")
     fig.tight_layout(rect=(0, 0.05, 1, 0.94), h_pad=2.5, w_pad=2.0)
     fig.savefig(OUT / "expost_2022.png", dpi=160, facecolor="white")
-    print(OUT / "expost_2022.png")
+    tables()
+    print(OUT / "expost_2022.png", OUT / "expost_2022_table1.png", OUT / "expost_2022_table2.png", sep="\n")
 
 
 if __name__ == "__main__":
