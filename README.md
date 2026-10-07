@@ -74,6 +74,7 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 | `src/plot_multipliers.py` | 実質GDP乗数の四半期経路（論文 vs 再現、11シナリオ）の作図 |
 | `src/plot_tax_cut_vs_benefit.py` | 名目GDP1%規模の消費税減税 vs 給付金の実質GDP・財政収支/GDP の3年間経路（`output/tax_cut_vs_benefit.{csv,png}`） |
 | `src/plot_food_tax_cut_vs_benefit.py` | 食料品の消費税 8%→1% vs 同額の一律消費税減税・給付金（2024年版、2022〜24年基準）。減収額は ESRI 家計の目的別消費の食料・非アルコール飲料×7/108、消費だけに効く税率で消費関数・消費デフレーター・消費税収の式を差し替え（`output/food_tax_cut_vs_benefit.{csv,png}`） |
+| `src/plot_policy_scenarios_2020.py` | 2020Q4 からの大型経済対策（消費税廃止・名目公共投資年20兆円・1人年80万円の現金給付）と実績の実質GDPの経路（2024年版、`output/policy_scenarios_2020.{csv,png}`） |
 | `src/sna.py` | SNA 四半期速報・年次推計の読み込み、季節調整（移動平均比率法） |
 | `src/fetch_*.py` | 論文・日銀・ESRI景気動向指数・OECD・FRED からの取得。`fetch_sna.py` は版の SNA ファイル、`fetch_estat.py` は e-Stat API（稼働率・貿易統計・世帯数） |
 | `src/experiment_ecm*.py` | 誤差修正項の扱いを特定した検証実験（結果は `output/experiment_ecm*.csv`） |
