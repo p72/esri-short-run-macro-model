@@ -85,6 +85,7 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 | `src/experiment_fx_passthrough.py` | 円安の物価押し上げ効果: モデルの経路分解、CPI のパススルーの期間別・10年移動窓の推定、式56・68 を2011〜2024年で推定し直したモデルでの円10%減価（結果は `output/experiment_fx_passthrough_*.csv`、図は `src/plot_fx_passthrough.py` → `output/fx_passthrough.png`） |
 | `src/experiment_itr_form.py` | 式129 の左辺が水準か DLOG かを、印刷された係数と自由度修正済み決定係数から検討し、同梱データでも推定し直す（Issue #2・#19、結果は `output/experiment_itr_form.csv`・`experiment_itr_reestimate.csv`） |
 | `src/experiment_ecm_greedy.py` | 誤差修正項の固定の探索（1本ずつ固定、貪欲法、入れ子形の追加3本） |
+| `docs/note_fx_passthrough.md` | 円安の物価押し上げ効果の一般向け解説記事（note 用の下書き、表の画像は `src/plot_fx_passthrough_tables.py`） |
 | `docs/fidelity.md` | 論文への忠実性の監査（照合方法、誤植の根拠、逸脱2件の根拠と影響） |
 
 ## 再現の考え方
@@ -300,6 +301,8 @@ CPI の8四半期の対数変化を、円安（実効レートの逆数）・契
 
 ![円安の物価押し上げ効果は大きくなったか](output/fx_passthrough.png)
 
+一般向けの解説記事（note 用の下書き）は [`docs/note_fx_passthrough.md`](docs/note_fx_passthrough.md)。表の画像は `src/plot_fx_passthrough_tables.py` で作る。
+
 **まとめ**
 - 「円1%安で消費者物価は0.02%」は、論文のモデルの性質として正しい（再現でも同じ）。デフレ期の CPI のデータで推定しても、同じくらい小さい。
 - 2021年以降のデータでは、パススルーは0.2前後と大きい。2年後の CPI 上昇率を回帰した単純な推定でも、論文と同じ形で推定し直したモデルでも、既定の係数より大きくなる。ここまでは「最近は係数が大きくなった」という説と合う。日銀のワーキングペーパーも、2000年代後半から CPI のパススルーが上がっていると報告している（[Hara, Hiraki and Ichise 2015](https://www.boj.or.jp/en/research/wps_rev/wps_2015/wp15e04.htm)、[Sasaki, Yoshida and Otsubo 2019, RIETI DP 19-E-078](https://www.rieti.go.jp/jp/publications/summary/19100001.html)）。
@@ -374,6 +377,7 @@ Issue #1〜#3、#17〜#19 はすべて閉じた。
 | #13 | 低所得世帯に絞った同額の給付金を追加（消費の反応を日銀の所得階層別限界消費性向から2.15倍とする、モデル外の仮定） |
 | #23 | 2020Q4 からの大型経済対策（消費税廃止・公共投資・現金給付）の実質GDPの経路図 |
 | #24 | 円安の物価押し上げ効果（為替パススルー）の検証。日銀の輸入物価・実効為替レートと CPI を追加取得し、近年のパススルーの推定と、式56・68 を推定し直したモデルでの円10%減価を比べる |
+| #25 | 円安の物価押し上げ効果の note 用の解説記事と表の画像 |
 
 ### 追加した検証スクリプト
 
