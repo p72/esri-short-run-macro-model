@@ -7,7 +7,9 @@
 実績の数値は note 記事「交易損失は賃金を下げるのか」（内閣府 国民経済計算 2020年基準からの計算、前年比の寄与度）。
 実績は前年比、モデルは基準解からの乖離なので、厳密な比較ではなく「形」の比較。
 
-出力: output/tot_policy_explain{1,2,3}.png（日本語フォント IPAPGothic が必要）
+表: note 記事（docs/note_tot_policy.md）用に、3年平均の主な数値を表の画像にする（数値は CSV から読む）
+
+出力: output/tot_policy_explain{1,2,3}.png, output/tot_policy_table.png（日本語フォント IPAPGothic が必要）
 """
 from pathlib import Path
 
@@ -161,6 +163,50 @@ def fig3(a: pd.DataFrame) -> None:
     fig.savefig(OUT / "tot_policy_explain3.png", dpi=160, facecolor="white")
 
 
+def table(a: pd.DataFrame) -> None:
+    avg = a.drop(columns=["年", "輸入価格の上昇率（%）"]).groupby("政策", sort=False).mean()
+    keys = list(SHORT)
+    rows = [("GDPデフレーター", "GDPデフレーター", "%"), ("　国内需要デフレーターの寄与", "寄与_国内需要デフレーター", "pt"),
+            ("　交易条件の寄与", "寄与_交易条件", "pt"), ("名目雇用者報酬", "名目雇用者報酬", "%"),
+            ("消費者物価（消費デフレーター）", "消費デフレーター", "%"), ("実質賃金", "実質賃金", "%"),
+            ("実質GDP", "実質GDP", "%")]
+    head = ["3年平均（基準解からの乖離）"] + [SHORT[k].replace("モデル: ", "").replace("参考: ", "参考:\n") for k in keys]
+    widths = [4.4, 1.9, 1.9, 1.9, 1.9]
+    W, rh = sum(widths), 0.6
+    h = rh * (len(rows) + 1.4) + 1.5
+    fig = plt.figure(figsize=(W, h))
+    fig.patch.set_facecolor("white")
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, W)
+    ax.set_ylim(h, 0)
+    ax.axis("off")
+    ax.text(0.25, 0.5, "交易損失（輸入価格 +25%）を与えたときのモデルの結果", fontsize=15, color=INK, va="center")
+    y = 1.0
+    hh = rh * 1.4  # 見出しは2行
+    ax.add_patch(plt.Rectangle((0, y), W, hh, color="#f3f2ee", lw=0))
+    x = 0
+    for txt, w in zip(head, widths):
+        ax.text(x + (0.2 if x == 0 else w / 2), y + hh / 2, txt, fontsize=11, color=INK2,
+                ha="left" if x == 0 else "center", va="center", linespacing=1.3)
+        x += w
+    y += hh
+    for lab, col, unit in rows:
+        x = 0
+        ax.text(0.2, y + rh / 2, lab, fontsize=12, color=INK, va="center")
+        x += widths[0]
+        for k, w in zip(keys, widths[1:]):
+            v = avg.loc[k, col]
+            ax.text(x + w / 2, y + rh / 2, f"{v:+.2f}{'%' if unit == '%' else ''}", fontsize=12, color=INK,
+                    ha="center", va="center")
+            x += w
+        ax.plot([0, W], [y + rh, y + rh], color=GRID, lw=1)
+        y += rh
+    ax.text(0.25, y + 0.35, "%は基準解（実績、2022〜24年）からの乖離、寄与は%pt。参考は輸入物価と消費デフレーターの式を推定し直した版。",
+            fontsize=9.5, color=INK2, va="center")
+    fig.savefig(OUT / "tot_policy_table.png", dpi=180, facecolor="white")
+    plt.close(fig)
+
+
 def main() -> None:
     style()
     a = pd.read_csv(OUT / "experiment_tot_policy.csv")
@@ -168,7 +214,8 @@ def main() -> None:
     fig1(a)
     fig2(p)
     fig3(a)
-    print(*(OUT / f"tot_policy_explain{i}.png" for i in (1, 2, 3)), sep="\n")
+    table(a)
+    print(*(OUT / f"tot_policy_explain{i}.png" for i in (1, 2, 3)), OUT / "tot_policy_table.png", sep="\n")
 
 
 if __name__ == "__main__":

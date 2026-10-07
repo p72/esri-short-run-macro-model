@@ -87,6 +87,7 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 | `src/experiment_itr_form.py` | 式129 の左辺が水準か DLOG かを、印刷された係数と自由度修正済み決定係数から検討し、同梱データでも推定し直す（Issue #2・#19、結果は `output/experiment_itr_form.csv`・`experiment_itr_reestimate.csv`） |
 | `src/experiment_ecm_greedy.py` | 誤差修正項の固定の探索（1本ずつ固定、貪欲法、入れ子形の追加3本） |
 | `docs/note_fx_passthrough.md` | 円安の物価押し上げ効果の一般向け解説記事（note 用の下書き、表の画像は `src/plot_fx_passthrough_tables.py`） |
+| `docs/note_tot_policy.md` | 交易損失と金融政策の枠組みの一般向け解説記事（note 用の下書き、表の画像は `src/plot_tot_policy_explainer.py`） |
 | `docs/fidelity.md` | 論文への忠実性の監査（照合方法、誤植の根拠、逸脱2件の根拠と影響） |
 
 ## 再現の考え方
@@ -343,6 +344,8 @@ note 記事「[交易損失は賃金を下げるのか](https://github.com/p72/n
 
 ![交易損失と金融政策の枠組み](output/tot_policy.png)
 
+一般向けの解説記事（note 用の下書き）は [`docs/note_tot_policy.md`](docs/note_tot_policy.md)。
+
 解説図（`src/plot_tot_policy_explainer.py`）:
 
 ![モデルの答えは2008年型](output/tot_policy_explain1.png)
@@ -429,7 +432,7 @@ Issue #1〜#3、#17〜#19 はすべて閉じた。
 | #23 | 2020Q4 からの大型経済対策（消費税廃止・公共投資・現金給付）の実質GDPの経路図 |
 | #24 | 円安の物価押し上げ効果（為替パススルー）の検証。日銀の輸入物価・実効為替レートと CPI を追加取得し、近年のパススルーの推定と、式56・68 を推定し直したモデルでの円10%減価を比べる |
 | #25 | 円安の物価押し上げ効果の note 用の解説記事と表の画像 |
-| #26 | 交易損失と金融政策の枠組み（note 記事「交易損失は賃金を下げるのか」の反事実をモデルで試算） |
+| #26 | 交易損失と金融政策の枠組み（note 記事「交易損失は賃金を下げるのか」の反事実をモデルで試算）、解説図3枚と note 用の記事 |
 
 ### 追加した検証スクリプト
 
