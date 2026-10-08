@@ -1,6 +1,8 @@
 """食料品の消費税率 8%→1% vs 同額の一律の消費税減税 vs 同額の給付金（全世帯／低所得世帯に絞る）: 実質GDPと財政収支/GDP の3年間の四半期経路を計算して描く.
 
-版は ESRI_VINTAGE=2024 に固定する（標準10%・軽減8%の複数税率が基準解に入っている 2022Q1〜2024Q4 を使う）。
+版は既定で ESRI_VINTAGE=2024（標準10%・軽減8%の複数税率が基準解に入っている 2022Q1〜2024Q4 を使う）。
+--vintage 2021 で、論文と同じ版・同じ期間（2018Q1〜2020Q4。2019Q4 の消費税率引上げとコロナ禍を含む）で解く。
+2021年版には目的別消費の表がないので、食料品の比率は2024年版の表（2020年基準）の同じ暦年の値を使う（--loss-tn 省略時のみ影響）。
 
 規模（事前の税収減）
   ESRI 2024年度年次推計「家計の目的別最終消費支出の構成（名目）」の 1.食料・非アルコール飲料 F（税込み）から
@@ -30,7 +32,10 @@ import os
 import sys
 from pathlib import Path
 
-os.environ["ESRI_VINTAGE"] = "2024"
+_pre = argparse.ArgumentParser(add_help=False)
+_pre.add_argument("--vintage", choices=["2024", "2021"], default="2024")
+VINTAGE = _pre.parse_known_args()[0].vintage
+os.environ["ESRI_VINTAGE"] = VINTAGE
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -45,7 +50,9 @@ import model as M
 import simulate as S
 import vintage as VT
 
-IMPL, END, SOLVE_START, WIN0 = "2022Q1", "2024Q4", "2021Q3", "2021Q3"
+WINDOWS = {"2024": ("2022Q1", "2024Q4", "2021Q3", "2021Q3"), "2021": ("2018Q1", "2020Q4", "2017Q3", "2017Q3")}
+IMPL, END, SOLVE_START, WIN0 = WINDOWS[VINTAGE]
+YEARS = list(range(int(IMPL[:4]), int(END[:4]) + 1))
 S.START, S.END, S.SOLVE_START = IMPL, END, SOLVE_START
 R_FOOD_OLD, R_FOOD_NEW = 0.08, 0.01
 # 低所得世帯に絞った給付: 日本銀行 展望レポート（2016年10月）BOX3 の世帯年収階層別の限界消費性向（図表3(2)の読み取り値）と
@@ -57,14 +64,15 @@ MPC_ALL = sum(m_ * w for m_, w in MPC_BY_INCOME.values()) / sum(w for _, w in MP
 MPC_LOW = MPC_BY_INCOME["<200"][0]
 K_TARGET = MPC_LOW / MPC_ALL
 ap = argparse.ArgumentParser()
+ap.add_argument("--vintage", choices=["2024", "2021"], default="2024", help="データの版（2021 は論文と同じ版・期間）")
 ap.add_argument("--years", type=int, default=None, help="時限措置の年数（省略時は恒久）")
 ap.add_argument("--loss-tn", type=float, default=None, help="事前の減収額（兆円/年）。省略時は SNA の食料支出×7/108")
 ARGS = ap.parse_args()
-SUFFIX = ("" if ARGS.loss_tn is None else f"_{ARGS.loss_tn:g}tn") + ("" if ARGS.years is None else f"_{ARGS.years}y")
+SUFFIX = ("" if VINTAGE == "2024" else f"_v{VINTAGE}") + ("" if ARGS.loss_tn is None else f"_{ARGS.loss_tn:g}tn") + ("" if ARGS.years is None else f"_{ARGS.years}y")
 TERM = "恒久" if ARGS.years is None else f"{ARGS.years}年間の時限"
 
 # ---- 食料品支出（ESRI 家計の目的別最終消費支出、名目・暦年）
-tab = pd.read_excel(VT.V["dir"] / "2024s12n_jp.xlsx", sheet_name="暦年", header=None)
+tab = pd.read_excel(ROOT / "data" / "raw" / "vintage2024" / "2024s12n_jp.xlsx", sheet_name="暦年", header=None)
 years = tab.iloc[6, 1:].astype(int).tolist()
 row = lambda key: pd.Series(tab[tab[0].astype(str).str.contains(key)].iloc[0, 1:].astype(float).values, index=years)
 food, hhc = row("食料・非アルコール"), row("国内家計最終消費支出")
@@ -141,7 +149,7 @@ def exante_loss(delta):
     return q["TCIV"] * (1 - (tb_new / tb) ** 0.915210)
 
 
-y1 = slice(IMPL, "2022Q4") if ARGS.loss_tn is None else slice(IMPL, END if STOP is None else str(STOP - 1))  # --loss-tn は実施期間の平均で合わせる
+y1 = slice(IMPL, f"{IMPL[:4]}Q4") if ARGS.loss_tn is None else slice(IMPL, END if STOP is None else str(STOP - 1))  # --loss-tn は実施期間の平均で合わせる
 lo, hi = 0.0, 0.10
 for _ in range(60):
     mid = (lo + hi) / 2
@@ -209,7 +217,7 @@ df.to_csv(ROOT / f"output/food_tax_cut_vs_benefit{SUFFIX}.csv", float_format="%.
 ann = df.loc[IMPL:END].copy()
 ann.index = pd.PeriodIndex(ann.index, freq="Q").year
 ann = ann.groupby(level=0).mean()
-print(f"食料・非アルコール飲料（暦年、兆円）: " + ", ".join(f"{y} {food[y] / 1000:.2f}" for y in (2022, 2023, 2024)))
+print(f"食料・非アルコール飲料（暦年、兆円）: " + ", ".join(f"{y} {food[y] / 1000:.2f}" for y in YEARS))
 print(f"実効税率の引下げ幅: 物価用 RTCICP {delta_p * 100:.3f}%pt（消費デフレーター −{dp * 100:.3f}%）、税収用 RTCIREV {delta * 100:.3f}%pt")
 print(f"低所得世帯向け給付: 限界消費性向 {MPC_LOW:.3f} / 全世帯平均 {MPC_ALL:.3f} = {K_TARGET:.2f} 倍")
 print(f"一律の消費税減税（同額）: RTCI {x_all * 100:.3f}%pt 引下げ")
@@ -282,7 +290,7 @@ fig.legend(h, l, loc="upper left", bbox_to_anchor=(0.01, 0.92), ncol=2, frameon=
 fig.suptitle("食料品の消費税 8%→1% vs 同額の一律消費税減税・給付金（全世帯／低所得世帯）" + (f"（減収 {ARGS.loss_tn:g}兆円/年）" if ARGS.loss_tn else "") + "：3年間の経路", x=0.01, ha="left",
              fontsize=13.5, color=INK, fontweight="bold", y=0.985)
 fig.text(0.01, 0.94, "内閣府 短期日本経済マクロ計量モデル（2022年版、ESRI Research Note No.72）の Python 再現で計算。"
-         f"2024年版データ（2020年基準SNA）、基準解＝{IMPL}〜{END} の実績、{TERM}" + ("" if STOP is None else f"（{STOP}に元の税率へ）") + "。", fontsize=9, color=INK2)
+         + ("2024年版データ（2020年基準SNA）" if VINTAGE == "2024" else "論文と同じ2021年版データ（2015年基準SNA）") + f"、基準解＝{IMPL}〜{END} の実績、{TERM}" + ("" if STOP is None else f"（{STOP}に元の税率へ）") + "。", fontsize=9, color=INK2)
 g = lambda k, var: "/".join(f"{v:+.2f}" for v in ann[(k, var)])
 scale = (f"規模: 事前の減収額＝食料・非アルコール飲料の家計消費（ESRI 年次推計、税込み）×7/108。年平均 {'/'.join(f'{v:.2f}' for v in loss_tn)} 兆円"
          f"（名目GDP比 {'/'.join(f'{v:.2f}' for v in loss_pct)}%）。外食・酒類は対象外、テイクアウトは含めない。一律減税・給付金は同額。\n")
