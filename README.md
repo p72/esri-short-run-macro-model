@@ -91,6 +91,7 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 | `docs/note_fx_passthrough.md` | 円安の物価押し上げ効果の一般向け解説記事（note 用の下書き、表の画像は `src/plot_fx_passthrough_tables.py`） |
 | `docs/note_tot_policy.md` | 交易損失と金融政策の枠組みの一般向け解説記事（note 用の下書き、表の画像は `src/plot_tot_policy_explainer.py`） |
 | `docs/note_expost_2022.md` | モデルと2022〜24年の実績の違いの一般向け解説記事（note 用の下書き） |
+| `docs/note_ctax_revenue.md` | 消費税減税と法人税収の一般向け解説記事（note 用の下書き） |
 | `docs/fidelity.md` | 論文への忠実性の監査（照合方法、誤植の根拠、逸脱2件の根拠と影響） |
 
 ## 再現の考え方
@@ -437,6 +438,8 @@ note 記事「[交易損失は賃金を下げるのか](https://github.com/p72/n
 
 ![名目GDP1%規模の消費税減税と法人税収](output/ctax_revenue.png)
 
+一般向けの解説記事（note 用の下書き）は [`docs/note_ctax_revenue.md`](docs/note_ctax_revenue.md)。表の画像は `src/plot_ctax_revenue.py` で作る。
+
 **読み方**
 - **消費税減税は、法人税収を増やす。** 2年目以降は年 +0.8〜1.2兆円（基準解の約3%増）になる。
   - モデルの消費税の転嫁率は0.52。減税分の約半分は値下げに回らず、企業の取り分になる。
@@ -517,7 +520,7 @@ Issue #1〜#3、#17〜#19 はすべて閉じた。
 | #25 | 円安の物価押し上げ効果の note 用の解説記事と表の画像 |
 | #26 | 交易損失と金融政策の枠組み（note 記事「交易損失は賃金を下げるのか」の反事実をモデルで試算）、解説図3枚と note 用の記事 |
 | #27 | モデルと2022〜24年の実績の違い（事後シミュレーションと式ごとの要因分解）、note 用の記事 |
-| #28 | 食料品減税 vs 給付金の試算に `--vintage 2021` を追加。名目GDP1%規模の消費税減税の税目別の税収（法人税収） |
+| #28 | 食料品減税 vs 給付金の試算に `--vintage 2021` を追加。名目GDP1%規模の消費税減税の税目別の税収（法人税収）と note 用の記事 |
 
 ### 追加した検証スクリプト
 

@@ -3,7 +3,9 @@
 左: 法人所得税の増減（兆円、四半期・年率）の経路。消費税減税と同額の給付金、2021年版と2024年版
 右: 税目別の増減（兆円、3年平均）の積み上げと、財源の戻り（税収の自然増 ÷ 事前の減税額）
 
-出力: output/ctax_revenue.png（日本語フォント IPAPGothic が必要）
+表: note 記事（docs/note_ctax_revenue.md）用に、3年平均の主な数値を表の画像にする（数値は CSV から読む）
+
+出力: output/ctax_revenue.png, output/ctax_revenue_table.png（日本語フォント IPAPGothic が必要）
 """
 from pathlib import Path
 
@@ -18,6 +20,46 @@ OUT = ROOT / "output"
 BLUE, ORANGE, AQUA, VIOLET, INK, INK2, GRID, GRAY = "#2a78d6", "#eb6834", "#1baf7a", "#8a63d2", "#0b0b0b", "#52514e", "#e6e5e1", "#b9b8b3"
 V21, V24 = "2021年版（2018〜20年）", "2024年版（2022〜24年）"
 CASES = [("消費税減税", BLUE), ("給付金（所得減税）", ORANGE)]
+
+
+def table(a: pd.DataFrame) -> None:
+    avg = a.groupby(["版", "政策"], sort=False).mean(numeric_only=True)
+    keys = [(v, c) for v in (V21, V24) for c, _ in CASES]
+    rows = [("法人所得税（兆円）", "法人所得税（兆円）", "{:+.2f}"), ("企業所得（%）", "企業所得 YCV（基準解比 %）", "{:+.1f}"),
+            ("消費税（兆円）", "消費税（兆円）", "{:+.1f}"), ("個人所得税（兆円）", "個人所得税（兆円）", "{:+.1f}"),
+            ("税収の合計（兆円）", "税収の合計（兆円）", "{:+.1f}"), ("財源の戻り（%）", "財源の戻り（%）", "{:.0f}"),
+            ("実質GDP（%）", "実質GDP（%）", "{:+.2f}")]
+    head = ["3年平均（基準解からの差）"] + [f"{c.replace('（所得減税）', '')}\n{v.split('（')[0]}" for v, c in keys]
+    widths = [3.6, 1.9, 1.9, 1.9, 1.9]
+    W, rh, hh = sum(widths), 0.6, 0.84
+    h = hh + rh * len(rows) + 1.5
+    fig = plt.figure(figsize=(W, h))
+    fig.patch.set_facecolor("white")
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, W)
+    ax.set_ylim(h, 0)
+    ax.axis("off")
+    ax.text(0.25, 0.5, "名目GDP1%規模の消費税減税と同額の給付金：税収への影響", fontsize=15, color=INK, va="center")
+    y = 1.0
+    ax.add_patch(plt.Rectangle((0, y), W, hh, color="#f3f2ee", lw=0))
+    x = 0
+    for txt, w in zip(head, widths):
+        ax.text(x + (0.2 if x == 0 else w / 2), y + hh / 2, txt, fontsize=11, color=INK2,
+                ha="left" if x == 0 else "center", va="center", linespacing=1.3)
+        x += w
+    y += hh
+    for lab, col, fmt in rows:
+        ax.text(0.2, y + rh / 2, lab, fontsize=12, color=INK, va="center")
+        x = widths[0]
+        for k, w in zip(keys, widths[1:]):
+            ax.text(x + w / 2, y + rh / 2, fmt.format(avg.loc[k, col]), fontsize=12, color=INK, ha="center", va="center")
+            x += w
+        ax.plot([0, W], [y + rh, y + rh], color=GRID, lw=1)
+        y += rh
+    ax.text(0.25, y + 0.35, "財源の戻り＝（税収の合計の変化＋事前の減税額）÷事前の減税額。給付金は個人所得税の減税として与える。",
+            fontsize=9.5, color=INK2, va="center")
+    fig.savefig(OUT / "ctax_revenue_table.png", dpi=180, facecolor="white")
+    plt.close(fig)
 
 
 def main() -> None:
@@ -86,7 +128,8 @@ def main() -> None:
     fig.text(0.01, 0.012, note, fontsize=8, color=INK2, linespacing=1.55, va="bottom")
     fig.tight_layout(rect=(0, 0.07, 1, 0.92), w_pad=2.5)
     fig.savefig(OUT / "ctax_revenue.png", dpi=160, facecolor="white")
-    print(OUT / "ctax_revenue.png")
+    table(a)
+    print(OUT / "ctax_revenue.png", OUT / "ctax_revenue_table.png", sep="\n")
 
 
 if __name__ == "__main__":
