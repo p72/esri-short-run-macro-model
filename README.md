@@ -82,6 +82,7 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 | `src/check_transcription.py` | 論文の各式の係数・定数と `model.py` の機械照合 |
 | `src/experiment_fidelity.py` | 印刷どおり・別解釈・誤植修正前の式で解いた一致度（`docs/fidelity.md`、結果は `output/experiment_fidelity.csv`） |
 | `src/experiment_proxy_levels.py` | 代用系列（`HH`・`PLAND`）の水準・傾きを歪めて解き直し、乗数が変わらないことを確認（Issue #3、結果は `output/experiment_proxy_levels.csv`） |
+| `src/experiment_ctax_revenue.py` | 名目GDP1%規模の消費税減税と給付金の税目別の税収（法人所得税・個人所得税・消費税）と財源の戻り、2021年版と2024年版（結果は `output/experiment_ctax_revenue*.csv`、図は `src/plot_ctax_revenue.py` → `output/ctax_revenue.png`） |
 | `src/experiment_expost_2022.py` | モデルと2022〜24年の実績の違い: 誤差項を平時の平均にした事後シミュレーション、式ごとの要因分解、誤差項の z 値（結果は `output/experiment_expost_2022*.csv`、図は `src/plot_expost_2022.py` → `output/expost_2022.png`） |
 | `src/experiment_tot_policy.py` | 交易損失と金融政策の枠組み: 2022年規模の交易ショックを、金利固定・テイラー・ルール・物価重視の引締め（と参考にパススルーを推定し直した式）で解き、GDPデフレーターの寄与度分解・賃金・実質GDPを比べる（結果は `output/experiment_tot_policy*.csv`、図は `src/plot_tot_policy.py` → `output/tot_policy.png`、解説図3枚は `src/plot_tot_policy_explainer.py` → `output/tot_policy_explain{1,2,3}.png`） |
 | `src/experiment_fx_passthrough.py` | 円安の物価押し上げ効果: モデルの経路分解、CPI のパススルーの期間別・10年移動窓の推定、式56・68 を2011〜2024年で推定し直したモデルでの円10%減価（結果は `output/experiment_fx_passthrough_*.csv`、図は `src/plot_fx_passthrough.py` → `output/fx_passthrough.png`） |
@@ -90,6 +91,7 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 | `docs/note_fx_passthrough.md` | 円安の物価押し上げ効果の一般向け解説記事（note 用の下書き、表の画像は `src/plot_fx_passthrough_tables.py`） |
 | `docs/note_tot_policy.md` | 交易損失と金融政策の枠組みの一般向け解説記事（note 用の下書き、表の画像は `src/plot_tot_policy_explainer.py`） |
 | `docs/note_expost_2022.md` | モデルと2022〜24年の実績の違いの一般向け解説記事（note 用の下書き） |
+| `docs/note_ctax_revenue.md` | 消費税減税と法人税収の一般向け解説記事（note 用の下書き） |
 | `docs/fidelity.md` | 論文への忠実性の監査（照合方法、誤植の根拠、逸脱2件の根拠と影響） |
 
 ## 再現の考え方
@@ -417,6 +419,42 @@ note 記事「[交易損失は賃金を下げるのか](https://github.com/p72/n
 - 国民所得 NIV の四半期の値は振れが大きい（季節調整の不安定さ）。式89 の予測はこれを拾うので、図では名目雇用者報酬を4四半期移動平均で示した。
 - 平時の誤差項の平均を「正常」とみなしている。どの期間を平時とするかで、水準は少し変わる。
 
+### 応用例: 名目GDP1%規模の消費税減税で、法人税収はどうなるか
+
+`src/experiment_ctax_revenue.py`、`src/plot_ctax_revenue.py`。シナリオは「名目GDP1%規模の消費税減税 vs 給付金」と同じで、税目別の税収を出す。
+- 事前の税収減が名目GDPの1%になるように、消費税率を引き下げる。2021年版は 2.21%pt、2024年版は 2.27%pt。
+- 比較として、同額の給付金（個人所得税の減税）も解く。
+
+法人所得税（`TYCV`）は、SNA の「所得・富等に課される経常税」の企業分で、国＋地方の合計。
+- 式131 で、実効税率に、前期から4期分の企業所得の平均を掛けて決まる。
+
+| 3年平均（基準解からの差） | 消費税減税・2021年版 | 給付金・2021年版 | 消費税減税・2024年版 | 給付金・2024年版 |
+|---|---|---|---|---|
+| 法人所得税（兆円） | +0.61 | +0.22 | +0.80 | +0.25 |
+| 法人所得税（基準解比、2・3年目） | +3.3% | +1.1% | +3.0〜3.5% | +0.9〜1.1% |
+| 企業所得（基準解比） | +3.2% | +0.8% | +3.2% | +0.7% |
+| 税収の合計（兆円） | −4.6 | −5.0 | −5.2 | −5.5 |
+| 財源の戻り（税収の自然増 ÷ 事前の減税額） | 16% | 9% | 15% | 9% |
+
+![名目GDP1%規模の消費税減税と法人税収](output/ctax_revenue.png)
+
+一般向けの解説記事（note 用の下書き）は [`docs/note_ctax_revenue.md`](docs/note_ctax_revenue.md)。表の画像は `src/plot_ctax_revenue.py` で作る。
+
+**読み方**
+- **消費税減税は、法人税収を増やす。** 2年目以降は年 +0.8〜1.2兆円（基準解の約3%増）になる。
+  - モデルの消費税の転嫁率は0.52。減税分の約半分は値下げに回らず、企業の取り分になる。
+  - そこに消費の増加が加わって、企業所得が約3%増える。
+  - 法人税収は、前期から4期分の企業所得で決まるので、約1年遅れて増える。
+  - 1年目の最初は、実施前の買い控えで企業所得が下がった分、少し減る。
+- **同額の給付金（所得減税）より、法人税収の戻りは約3倍大きい。**
+  - 消費税減税は、税収の自然増で事前の減税額の約15〜16%が戻る。そのうち約11〜13%分が法人所得税。
+  - 給付金は約9%しか戻らない。
+- ただし、減税の大部分（8割以上）は戻らない。財政収支は悪化する。
+
+**注意点**
+- 転嫁率0.52 はモデルの式（デフレ期の推定）による。減税分がすべて値下げに回る場合は、企業所得の増加と法人税収の戻りは小さくなる。
+- 法人所得税は国の「法人税」と範囲が違う。法人住民税・法人事業税の所得割を含み、決算の税収とは一致しない。
+
 ## 変数台帳（論文の定義と実際のデータの対応）
 
 `data/processed/variable_ledger.csv` に、モデルデータの全234変数について次を記録している（`src/ledger.py` で生成）。
@@ -482,6 +520,7 @@ Issue #1〜#3、#17〜#19 はすべて閉じた。
 | #25 | 円安の物価押し上げ効果の note 用の解説記事と表の画像 |
 | #26 | 交易損失と金融政策の枠組み（note 記事「交易損失は賃金を下げるのか」の反事実をモデルで試算）、解説図3枚と note 用の記事 |
 | #27 | モデルと2022〜24年の実績の違い（事後シミュレーションと式ごとの要因分解）、note 用の記事 |
+| #28 | 食料品減税 vs 給付金の試算に `--vintage 2021` を追加。名目GDP1%規模の消費税減税の税目別の税収（法人税収）と note 用の記事 |
 
 ### 追加した検証スクリプト
 
@@ -496,6 +535,7 @@ Issue #1〜#3、#17〜#19 はすべて閉じた。
 | `src/experiment_fx_passthrough.py` | 円1%安で消費者物価0.02%は、近年のデータでも成り立つか（為替パススルー） |
 | `src/experiment_tot_policy.py` | 同じ交易損失でも、金融政策の設定で賃金・物価の分担が変わるか |
 | `src/experiment_expost_2022.py` | 2022〜24年の実績は、モデルのどの式から外れたか |
+| `src/experiment_ctax_revenue.py` | 消費税減税で、法人税収などの税収はどうなるか |
 
 ## データの出典と利用条件
 
