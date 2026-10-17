@@ -82,7 +82,7 @@ ESRI_VINTAGE=2024 python src/simulate.py                                # 論文
 | `src/check_transcription.py` | 論文の各式の係数・定数と `model.py` の機械照合 |
 | `src/experiment_fidelity.py` | 印刷どおり・別解釈・誤植修正前の式で解いた一致度（`docs/fidelity.md`、結果は `output/experiment_fidelity.csv`） |
 | `src/experiment_proxy_levels.py` | 代用系列（`HH`・`PLAND`）の水準・傾きを歪めて解き直し、乗数が変わらないことを確認（Issue #3、結果は `output/experiment_proxy_levels.csv`） |
-| `src/experiment_ngdplt.py` | 2020年から名目GDP水準目標（年3%・4%・5%）を採っていた場合の政策金利（ルールの当てはめとモデルの解、比較のインフレ目標ルール。結果は `output/experiment_ngdplt*.csv`、図は `src/plot_ngdplt.py` → `output/ngdplt.png`、消費者物価の図は `src/plot_ngdplt_cpi.py` → `output/ngdplt_cpi.png`、実質GDPの図は `src/plot_ngdplt_gdp.py` → `output/ngdplt_gdp.png`） |
+| `src/experiment_ngdplt.py` | 2020年から名目GDP水準目標（年3%・4%・5%）を採っていた場合の政策金利（ルールの当てはめとモデルの解、比較のインフレ目標ルール。結果は `output/experiment_ngdplt*.csv`、図は `src/plot_ngdplt.py` → `output/ngdplt.png`、消費者物価の図は `src/plot_ngdplt_cpi.py` → `output/ngdplt_cpi.png`、実質GDPの図は `src/plot_ngdplt_gdp.py` → `output/ngdplt_gdp.png`。起点を2021年にした版は `src/experiment_ngdplt_2021.py` → `output/ngdplt_2021.png`） |
 | `src/experiment_rgb7_fx200.py` | 長期金利7%・ドル円200円シナリオ（円安のみ・金利のみ・両方、2024年版。結果は `output/experiment_rgb7_fx200*.csv`、図は `src/plot_rgb7_fx200.py` → `output/rgb7_fx200.png`） |
 | `src/experiment_ctax_revenue.py` | 名目GDP1%規模の消費税減税と給付金の税目別の税収（法人所得税・個人所得税・消費税）と財源の戻り、2021年版と2024年版（結果は `output/experiment_ctax_revenue*.csv`、図は `src/plot_ctax_revenue.py` → `output/ctax_revenue.png`） |
 | `src/experiment_expost_2022.py` | モデルと2022〜24年の実績の違い: 誤差項を平時の平均にした事後シミュレーション、式ごとの要因分解、誤差項の z 値（結果は `output/experiment_expost_2022*.csv`、図は `src/plot_expost_2022.py` → `output/expost_2022.png`） |
@@ -519,6 +519,14 @@ note 記事「[交易損失は賃金を下げるのか](https://github.com/p72/n
 
 ![名目GDP水準目標なら実質GDPは](output/ngdplt_gdp.png)
 
+**起点を2021年にした場合**（`src/experiment_ngdplt_2021.py`）：目標経路の起点を2020Q4 の名目GDP（コロナ禍の落ち込みのあと）に置き、2021Q1 から同じルールを使う。
+- コロナ禍の不足が起点に織り込まれるので、目標とのずれは小さい。
+- 政策金利は、ルールの中立金利 g に向かって2021年に1〜2%へ上がる。
+- モデルの解は、3%目標で1.4〜1.7%、4%目標で0.6〜1.6%、5%目標で−0.5〜1.8%（年平均）。
+- 実際の名目GDP は2023年以降、3%の経路を上回る。3%・4%目標では実績より引き締めになり、実質GDP は実績より低い（2024年に3%目標で約11兆円）。
+
+![名目GDP水準目標を2021年から始めていたら](output/ngdplt_2021.png)
+
 **読み方**
 - 実績の名目GDPは、2019年から年約2%しか伸びていない。2024年に、年3%の目標経路を約4%、年4%・5%の経路を9〜14%下回り、NGDPLT はマイナス金利を求める。
 - 年3%目標なら、ずれは2023年以降に縮み、モデルに組み込んだ解では、政策金利は2023年後半から0〜0.3%とほぼゼロに戻る（実績の経済のままなら2024年も−1〜−2%）。
@@ -601,6 +609,7 @@ Issue #1〜#3、#17〜#19 はすべて閉じた。
 | #30 | NGDPLT に年3%の目標を追加 |
 | #31 | NGDPLT の消費者物価の図を追加 |
 | #32 | NGDPLT の実質GDPの推移の図を追加 |
+| #33 | NGDPLT を2021年から始めた場合（起点＝2020Q4）を追加 |
 
 ### 追加した検証スクリプト
 
